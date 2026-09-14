@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from evalkit.adapters.echo import EchoAdapter
+from evalkit.graders.composite import grade_all
 from evalkit.harness.runner import run_suite
 from evalkit.schema.case import load_cases
 from evalkit.schema.trajectory import StepType, Trajectory
@@ -42,19 +43,32 @@ def run(
         run_suite(adapter, cases, Path("runs"), trials)
     )
 
-    table = Table(title=f"run {run_id}", header_style="bold")
-    table.add_column("case")
-    table.add_column("tools called")
-    table.add_column("stop", justify="center")
-    table.add_column("said", max_width=46, overflow="ellipsis")
+    by_id = {c.id: c for c in cases}
+    results = [grade_all(by_id[t.case_id], t) for t in trajectories]
 
-    for t in trajectories:
-        tools = ", ".join(c.name for c in t.tool_calls) or "[dim]none[/dim]"
-        table.add_row(t.case_id, tools, t.stop_reason.value, t.final_output or "")
+    table = Table(title=f"run {run_id}", header_style="bold")
+    table.add_column("", justify="center", width=4, no_wrap=True)
+    table.add_column("case")
+    table.add_column("why it failed", max_width=62, overflow="fold")
+
+    for r in results:
+        if r.passed:
+            table.add_row("[green]PASS[/green]", r.case_id, "[dim]-[/dim]")
+        else:
+            why = "\n".join(
+                f"[red]{s.grader}[/red]  {s.explanation}"
+                for s in r.scores if s.passed is False
+            )
+            table.add_row("[red]FAIL[/red]", f"[red]{r.case_id}[/red]", why)
 
     console.print(table)
-    console.print(f"\n[dim]recordings:[/dim] runs/{run_id}/trajectories/")
-    console.print("[yellow]no grading yet - that is Box 4.[/yellow]")
+
+    passed = sum(1 for r in results if r.passed)
+    total = len(results)
+    pct = 100 * passed / total if total else 0
+    colour = "green" if passed == total else "red"
+    console.print(f"\n[bold {colour}]{passed}/{total} passed  ({pct:.0f}%)[/bold {colour}]")
+    console.print(f"[dim]recordings: runs/{run_id}/trajectories/[/dim]")
 
 
 if __name__ == "__main__":
