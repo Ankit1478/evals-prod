@@ -12,6 +12,7 @@ from rich.table import Table
 
 from evalkit.adapters.echo import EchoAdapter
 from evalkit.graders.composite import grade_all
+from evalkit.stats.gate import load_results, run_gate
 from evalkit.harness.runner import run_suite
 from evalkit.schema.case import load_cases
 from evalkit.schema.trajectory import StepType, Trajectory
@@ -45,6 +46,15 @@ def run(
 
     by_id = {c.id: c for c in cases}
     results = [grade_all(by_id[t.case_id], t) for t in trajectories]
+
+    # Save the verdicts next to the recordings, so `ef gate` can read them
+    # later without re-running (and re-paying for) the agent.
+    run_dir = Path("runs") / run_id
+    with (run_dir / "scores.jsonl").open("w") as f:
+        for r in results:
+            row = r.model_dump(mode="json")
+            row["kind"] = by_id[r.case_id].kind
+            f.write(json.dumps(row) + "\n")
 
     table = Table(title=f"run {run_id}", header_style="bold")
     table.add_column("", justify="center", width=4, no_wrap=True)
@@ -131,3 +141,32 @@ def trace(
                      else "[dim]none (no fake DB yet - that is Box 6)[/dim]"))
     console.print(f"[dim]tokens {t.usage.input_tokens} in / "
                   f"{t.usage.output_tokens} out  ·  {t.latency_ms} ms[/dim]\n")
+
+
+@app.command()
+def gate(
+    run: str | None = typer.Option(None, help="run id (default: the latest run)"),
+    suite: str = typer.Option("suites/support-agent", help="suite holding thresholds.json"),
+):
+    """Decide: ship or do not ship. Exits 0 (pass), 2 (failed), 3 (invalid).
+
+    CI reads the exit code. A crashed eval must exit 3 - never 0.
+    """
+    run_dir = Path("runs") / run if run else _latest_run(Path("runs"))
+    thresholds = json.loads((Path(suite) / "thresholds.json").read_text())
+    results, kinds = load_results(run_dir)
+    verdict = run_gate(results, kinds, thresholds)
+
+    console.print(f"\n[bold]gate[/bold]  [dim]{run_dir.name}[/dim]\n")
+    for st in verdict.stages:
+        mark = "[green]PASS[/green]" if st.passed else "[red]FAIL[/red]"
+        console.print(f"  {mark}  [bold]{st.stage}[/bold]  {st.detail}")
+
+    if verdict.passed:
+        console.print("\n[bold green]SHIP IT[/bold green]  [dim]exit 0[/dim]\n")
+    else:
+        word = "INVALID RUN" if verdict.exit_code == 3 else "BLOCKED"
+        console.print(f"\n[bold red]{word}[/bold red]  "
+                      f"[dim]stopped at {verdict.blocked_by} · "
+                      f"exit {verdict.exit_code}[/dim]\n")
+    raise typer.Exit(verdict.exit_code)

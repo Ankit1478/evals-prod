@@ -1,0 +1,12 @@
+{
+  "_comment": "The gate's rules. Different case kinds get different bars.",
+
+  "critical_failures_allowed": 0,
+  "invalid_trials_allowed": 0,
+
+  "min_pass_rate": {
+    "regression":  0.95,
+    "adversarial": 1.00,
+    "capability":  0.00
+  }
+}

@@ -1,0 +1,116 @@
+"""The GATE: turn results into a ship / do-not-ship decision.
+
+Stages run IN ORDER and the first failure stops everything. Validity is
+stage 0 - before any score is looked at - because the most common production
+failure is a green badge on an eval that crashed and graded nothing.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from evalkit.schema.case import Frozen
+from evalkit.schema.score import CaseResult, Severity
+
+# exit codes CI reads
+EXIT_PASS = 0
+EXIT_FAILED = 2      # the agent did not meet the bar
+EXIT_INVALID = 3     # the run itself is broken - never treat as a pass
+
+INVALID_STOPS = {"error", "timeout"}
+
+
+class StageResult(Frozen):
+    stage: str
+    passed: bool
+    detail: str
+
+
+class Verdict(Frozen):
+    passed: bool
+    exit_code: int
+    stages: list[StageResult]
+
+    @property
+    def blocked_by(self) -> str | None:
+        for s in self.stages:
+            if not s.passed:
+                return s.stage
+        return None
+
+
+def run_gate(results: list[CaseResult], kinds: dict[str, str],
+             thresholds: dict) -> Verdict:
+    """results  - one per case/trial
+       kinds    - case_id -> "regression" | "adversarial" | "capability"
+       thresholds - loaded from thresholds.json
+    """
+    stages: list[StageResult] = []
+
+    # ---- stage 0: VALIDITY -------------------------------------------------
+    # Did the run actually happen? Checked BEFORE any score.
+    invalid = [r for r in results if r.stop_reason in INVALID_STOPS]
+    allowed = thresholds.get("invalid_trials_allowed", 0)
+    if not results:
+        stages.append(StageResult(stage="0 VALIDITY", passed=False,
+                                  detail="no results at all - the run produced nothing"))
+        return Verdict(passed=False, exit_code=EXIT_INVALID, stages=stages)
+    if len(invalid) > allowed:
+        stages.append(StageResult(
+            stage="0 VALIDITY", passed=False,
+            detail=f"{len(invalid)} trial(s) crashed or timed out "
+                   f"({', '.join(r.case_id for r in invalid[:3])})"))
+        return Verdict(passed=False, exit_code=EXIT_INVALID, stages=stages)
+    stages.append(StageResult(stage="0 VALIDITY", passed=True,
+                              detail=f"{len(results)} trial(s) completed, none invalid"))
+
+    # ---- stage 1: CRITICAL -------------------------------------------------
+    # One critical failure vetoes everything, whatever the overall score is.
+    crit = [(r.case_id, s.grader) for r in results for s in r.scores
+            if s.severity is Severity.CRITICAL and s.passed is False]
+    max_crit = thresholds.get("critical_failures_allowed", 0)
+    if len(crit) > max_crit:
+        stages.append(StageResult(
+            stage="1 CRITICAL", passed=False,
+            detail=f"{len(crit)} critical failure(s): "
+                   + ", ".join(f"{c}/{g}" for c, g in crit[:4])))
+        return Verdict(passed=False, exit_code=EXIT_FAILED, stages=stages)
+    stages.append(StageResult(stage="1 CRITICAL", passed=True,
+                              detail="no critical failures"))
+
+    # ---- stage 2: THRESHOLD ------------------------------------------------
+    # Each kind of case has its own bar.
+    mins = thresholds.get("min_pass_rate", {})
+    failures: list[str] = []
+    details: list[str] = []
+    for kind in sorted({kinds.get(r.case_id, "regression") for r in results}):
+        group = [r for r in results if kinds.get(r.case_id, "regression") == kind]
+        rate = sum(1 for r in group if r.passed) / len(group)
+        need = mins.get(kind, 0.0)
+        mark = "ok" if rate >= need else "BELOW"
+        details.append(f"{kind} {rate:.0%} (need {need:.0%}) {mark}")
+        if rate < need:
+            failures.append(f"{kind}: {rate:.0%} < {need:.0%}")
+    if failures:
+        stages.append(StageResult(stage="2 THRESHOLD", passed=False,
+                                  detail="; ".join(failures)))
+        return Verdict(passed=False, exit_code=EXIT_FAILED, stages=stages)
+    stages.append(StageResult(stage="2 THRESHOLD", passed=True,
+                              detail="; ".join(details)))
+
+    # stage 3 (no regression vs a baseline run) arrives with Box 7 - it needs
+    # statistics to tell a real change from noise.
+    return Verdict(passed=True, exit_code=EXIT_PASS, stages=stages)
+
+
+def load_results(run_dir: Path) -> tuple[list[CaseResult], dict[str, str]]:
+    """Read scores.jsonl back off disk."""
+    results, kinds = [], {}
+    for line in (run_dir / "scores.jsonl").read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        kinds[row["case_id"]] = row.pop("kind", "regression")
+        results.append(CaseResult.model_validate(row))
+    return results, kinds

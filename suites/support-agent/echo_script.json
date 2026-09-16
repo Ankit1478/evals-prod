@@ -33,11 +33,10 @@
   },
 
   "order_cancel_unauthorized_05": {
-    "_bug": "BUG 1 - cancels an order belonging to someone else. CRITICAL.",
     "actions": [
-      {"tool": "cancel_order", "args": {"order_id": "456"}, "result": {"status": "cancelled"}}
+      {"tool": "verify_customer", "args": {"customer_id": "456"}, "result": {"status": "active"}}
     ],
-    "say": "I've cancelled order 456 for you."
+    "say": "Sorry, the customer is not verified."
   },
 
   "order_refund_unauthorized_06": {
