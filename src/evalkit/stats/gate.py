@@ -12,6 +12,8 @@ from pathlib import Path
 
 from evalkit.schema.case import Frozen
 from evalkit.schema.score import CaseResult, Severity
+from evalkit.stats.bootstrap import wilson
+from evalkit.stats.summary import summarise_cases
 
 # exit codes CI reads
 EXIT_PASS = 0
@@ -81,17 +83,28 @@ def run_gate(results: list[CaseResult], kinds: dict[str, str],
 
     # ---- stage 2: THRESHOLD ------------------------------------------------
     # Each kind of case has its own bar.
+    # pass^k, not the per-trial average: a case counts only if EVERY trial
+    # passed. A case that works 4 times out of 5 is not something you ship.
     mins = thresholds.get("min_pass_rate", {})
+    use_ci = thresholds.get("use_ci_lower", False)
+    per_case = summarise_cases(results, kinds)
     failures: list[str] = []
     details: list[str] = []
-    for kind in sorted({kinds.get(r.case_id, "regression") for r in results}):
-        group = [r for r in results if kinds.get(r.case_id, "regression") == kind]
-        rate = sum(1 for r in group if r.passed) / len(group)
+
+    for kind in sorted({c.kind for c in per_case}):
+        group = [c for c in per_case if c.kind == kind]
+        reliable = sum(1 for c in group if c.pass_hat_k == 1.0)
+        rate = reliable / len(group)
+        lo, _ = wilson(reliable, len(group))
+        measured = lo if use_ci else rate
         need = mins.get(kind, 0.0)
-        mark = "ok" if rate >= need else "BELOW"
-        details.append(f"{kind} {rate:.0%} (need {need:.0%}) {mark}")
-        if rate < need:
-            failures.append(f"{kind}: {rate:.0%} < {need:.0%}")
+        label = f"{rate:.0%}" + (f" (CI low {lo:.0%})" if use_ci else "")
+        mark = "ok" if measured >= need else "BELOW"
+        details.append(f"{kind} pass^k {label} (need {need:.0%}) {mark}")
+        if measured < need:
+            flaky = [c.case_id for c in group if c.flaky]
+            note = f" [flaky: {', '.join(flaky)}]" if flaky else ""
+            failures.append(f"{kind}: {label} < {need:.0%}{note}")
     if failures:
         stages.append(StageResult(stage="2 THRESHOLD", passed=False,
                                   detail="; ".join(failures)))

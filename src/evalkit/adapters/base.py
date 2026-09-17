@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from evalkit.env.base import Environment
 from evalkit.schema.case import Case
 from evalkit.schema.trajectory import Trajectory
 
@@ -18,7 +19,8 @@ class Adapter(Protocol):
     name: str
     version: str
 
-    async def run(self, case: Case, run_id: str, trial_index: int) -> Trajectory:
+    async def run(self, case: Case, env: Environment, run_id: str,
+                  trial_index: int) -> Trajectory:
         """Run the agent on one case and return the recording.
 
         The adapter MUST NOT read case.expected. That is the answer key.

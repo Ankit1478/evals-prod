@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from evalkit.adapters.base import Adapter
+from evalkit.env.memory import MemoryEnv
 from evalkit.schema.case import Case
 from evalkit.schema.trajectory import StopReason, Trajectory
 
@@ -31,23 +32,39 @@ async def run_one(adapter: Adapter, case: Case, run_id: str,
     failure, not a missing row. A missing row silently shrinks the total and
     makes your score look better than it is.
     """
+    # A FRESH environment per trial. Never shared, never reused - leftover
+    # state from trial N makes trial N+1 fail for reasons that have nothing
+    # to do with the agent.
+    env = MemoryEnv()
+    await env.setup(case.initial_state)
+    before = await env.snapshot()
+
     try:
-        return await asyncio.wait_for(
-            adapter.run(case, run_id, trial_index),
+        traj = await asyncio.wait_for(
+            adapter.run(case, env, run_id, trial_index),
             timeout=case.timeout_s,
         )
     except asyncio.TimeoutError:
-        return Trajectory(
+        traj = Trajectory(
             run_id=run_id, case_id=case.id, trial_index=trial_index,
             stop_reason=StopReason.TIMEOUT,
             error=f"exceeded timeout_s={case.timeout_s}",
         )
     except Exception as e:
-        return Trajectory(
+        traj = Trajectory(
             run_id=run_id, case_id=case.id, trial_index=trial_index,
             stop_reason=StopReason.ERROR,
             error=f"{type(e).__name__}: {e}",
         )
+
+    # The state evidence is captured by the HARNESS, not by the adapter.
+    # An agent must never get to report on its own side effects.
+    after = await env.snapshot()
+    return traj.model_copy(update={
+        "state_before": before,
+        "state_after": after,
+        "state_diff": env.diff(before, after),
+    })
 
 
 async def run_suite(adapter: Adapter, cases: list[Case], runs_dir: Path,

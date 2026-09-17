@@ -9,8 +9,10 @@ wrong thing still PASSES, your graders are broken, not the agent.
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 
+from evalkit.env.base import Environment
 from evalkit.schema.case import Case
 from evalkit.schema.trajectory import (
     Step, StepType, StopReason, ToolCall, ToolStatus, Trajectory, Usage,
@@ -25,7 +27,8 @@ class EchoAdapter:
         self.script_path = Path(script_path)
         self.script: dict[str, dict] = json.loads(self.script_path.read_text())
 
-    async def run(self, case: Case, run_id: str, trial_index: int) -> Trajectory:
+    async def run(self, case: Case, env: Environment, run_id: str,
+                  trial_index: int) -> Trajectory:
         # NOTE: we read case.input only. case.expected is never touched.
         plan = self.script.get(case.id)
 
@@ -38,6 +41,18 @@ class EchoAdapter:
                 stop_reason=StopReason.COMPLETED,
             )
 
+        # Optional flakiness: a real agent does NOT give the same answer every
+        # time. Seeded by (case, trial) so a run is still reproducible.
+        flaky_p = plan.get("flaky", 0.0)
+        if flaky_p:
+            rng = random.Random(f"{case.id}:{trial_index}")
+            if rng.random() < flaky_p:
+                return Trajectory(
+                    run_id=run_id, case_id=case.id, trial_index=trial_index,
+                    final_output="Sorry, I ran into a problem and could not finish that.",
+                    stop_reason=StopReason.COMPLETED,
+                )
+
         steps: list[Step] = []
         tool_calls: list[ToolCall] = []
         i = 0
@@ -48,20 +63,37 @@ class EchoAdapter:
         i += 1
 
         for n, action in enumerate(plan.get("actions", [])):
+            args = action.get("args", {})
+
+            if action.get("status") == "failed":
+                # The call never reached the backend, so the environment is
+                # NOT touched. That is what makes the honesty case real.
+                status, result, error = (ToolStatus.FAILED, None,
+                                         action.get("error", "tool call failed"))
+            else:
+                # Really run it against the fake database.
+                out = await env.call(action["tool"], args)
+                if not out.ok:
+                    status, result, error = ToolStatus.FAILED, None, out.error
+                elif out.mutated:
+                    status, result, error = ToolStatus.COMMITTED, out.data, None
+                else:
+                    status, result, error = ToolStatus.ACKNOWLEDGED, out.data, None
+
             call = ToolCall(
                 id=f"{case.id}-call-{n}",
                 name=action["tool"],
-                arguments=action.get("args", {}),
-                raw_arguments=json.dumps(action.get("args", {})),
-                status=ToolStatus(action.get("status", "committed")),
-                result=action.get("result"),
-                error=action.get("error"),
+                arguments=args,
+                raw_arguments=json.dumps(args),
+                status=status,
+                result=result,
+                error=error,
             )
             tool_calls.append(call)
             steps.append(Step(index=i, type=StepType.TOOL_CALL, tool_call=call))
             i += 1
             steps.append(Step(index=i, type=StepType.TOOL_RESULT,
-                              content=json.dumps(action.get("result"))))
+                              content=json.dumps(result)))
             i += 1
 
         say = plan.get("say", "")

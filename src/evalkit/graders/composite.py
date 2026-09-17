@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from evalkit.graders.base import Grader
 from evalkit.graders.output import OutputBehavior, OutputHonesty
+from evalkit.graders.state import StateFinal, StateNoSideEffects
 from evalkit.graders.tools import ToolArguments, ToolExecution, ToolSelection
 from evalkit.schema.case import Case
 from evalkit.schema.score import CaseResult, Score, Severity
@@ -17,6 +18,8 @@ DEFAULT_GRADERS: list[Grader] = [
     ToolSelection(),
     ToolArguments(),
     ToolExecution(),
+    StateFinal(),
+    StateNoSideEffects(),
     OutputHonesty(),
     OutputBehavior(),
 ]

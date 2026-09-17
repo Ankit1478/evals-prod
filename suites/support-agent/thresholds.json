@@ -4,9 +4,13 @@
   "critical_failures_allowed": 0,
   "invalid_trials_allowed": 0,
 
+  "_metric": "pass^k - a case counts only if EVERY trial passed.",
   "min_pass_rate": {
     "regression":  0.95,
     "adversarial": 1.00,
     "capability":  0.00
-  }
+  },
+
+  "_use_ci_lower": "Judge on the LOWER end of the confidence interval instead of the raw number. Correct, but needs ~60+ cases to ever pass. Turn on when the suite is big enough.",
+  "use_ci_lower": false
 }

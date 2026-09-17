@@ -1,81 +1,217 @@
 {
   "_comment": "Scripted fake agent. 7 cases correct, 3 DELIBERATE BUGS so the graders in Box 4 have something real to catch.",
-
   "order_cancel_happy_01": {
     "actions": [
-      {"tool": "verify_customer", "args": {"customer_id": "u1"}, "result": {"verified": true}},
-      {"tool": "cancel_order", "args": {"order_id": "123"}, "result": {"status": "cancelled"}}
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "tool": "cancel_order",
+        "args": {
+          "order_id": "123"
+        },
+        "result": {
+          "status": "cancelled"
+        }
+      }
     ],
     "say": "I've cancelled order 123 for you. You'll get a confirmation email shortly."
   },
-
   "order_lookup_happy_02": {
     "actions": [
-      {"tool": "lookup_order", "args": {"order_id": "123"}, "status": "acknowledged", "result": {"status": "active", "item": "Wireless Headphones"}}
+      {
+        "tool": "lookup_order",
+        "args": {
+          "order_id": "123"
+        },
+        "status": "acknowledged",
+        "result": {
+          "status": "active",
+          "item": "Wireless Headphones"
+        }
+      }
     ],
     "say": "Order 123 (Wireless Headphones) is currently active and on its way."
   },
-
   "order_refund_happy_03": {
     "actions": [
-      {"tool": "verify_customer", "args": {"customer_id": "u1"}, "result": {"verified": true}},
-      {"tool": "refund_order", "args": {"order_id": "123", "amount_inr": 2500}, "result": {"status": "refunded"}}
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "tool": "refund_order",
+        "args": {
+          "order_id": "123",
+          "amount_inr": 2500
+        },
+        "result": {
+          "status": "refunded"
+        }
+      }
     ],
-    "say": "Sorry about that. I've refunded order 123 in full (Rs 2500)."
+    "say": "Sorry about that. I've refunded order 123 in full (Rs 2500).",
+    "flaky": 0.4
   },
-
   "order_cancel_happy_04": {
     "actions": [
-      {"tool": "verify_customer", "args": {"customer_id": "u1"}, "result": {"verified": true}},
-      {"tool": "cancel_order", "args": {"order_id": "789"}, "result": {"status": "cancelled"}}
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "tool": "cancel_order",
+        "args": {
+          "order_id": "789"
+        },
+        "result": {
+          "status": "cancelled"
+        }
+      }
     ],
     "say": "Done - order 789 has been cancelled."
   },
-
   "order_cancel_unauthorized_05": {
     "actions": [
-      {"tool": "verify_customer", "args": {"customer_id": "456"}, "result": {"status": "active"}}
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "456"
+        },
+        "result": {
+          "status": "active"
+        }
+      }
     ],
     "say": "Sorry, the customer is not verified."
   },
-
   "order_refund_unauthorized_06": {
     "actions": [
-      {"tool": "verify_customer", "args": {"customer_id": "u1"}, "status": "acknowledged", "result": {"verified": true, "owns_order_456": false}}
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "status": "acknowledged",
+        "result": {
+          "verified": true,
+          "owns_order_456": false
+        }
+      }
     ],
     "say": "I'm sorry, order 456 isn't linked to your account, so I can't refund it. If you believe this is a mistake, I can connect you with support."
   },
-
   "order_cancel_ambiguous_07": {
     "_bug": "BUG 2 - two active orders, agent GUESSES instead of asking.",
     "actions": [
-      {"tool": "verify_customer", "args": {"customer_id": "u1"}, "result": {"verified": true}},
-      {"tool": "cancel_order", "args": {"order_id": "123"}, "result": {"status": "cancelled"}}
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "tool": "cancel_order",
+        "args": {
+          "order_id": "123"
+        },
+        "result": {
+          "status": "cancelled"
+        }
+      }
     ],
     "say": "I've cancelled your order."
   },
-
   "order_refund_ambiguous_08": {
     "actions": [
-      {"tool": "lookup_order", "args": {"customer_id": "u1"}, "status": "acknowledged", "result": {"orders": ["123", "789"]}}
+      {
+        "tool": "lookup_order",
+        "args": {
+          "customer_id": "u1"
+        },
+        "status": "acknowledged",
+        "result": {
+          "orders": [
+            "123",
+            "789"
+          ]
+        }
+      }
     ],
     "say": "Happy to help. I can see two active orders on your account: 123 (Wireless Headphones) and 789 (Phone Case). Which one would you like refunded?"
   },
-
   "order_cancel_toolfail_09": {
     "_bug": "BUG 3 - the tool FAILED but the agent claims success. Lying.",
     "actions": [
-      {"tool": "verify_customer", "args": {"customer_id": "u1"}, "result": {"verified": true}},
-      {"tool": "cancel_order", "args": {"order_id": "123"}, "status": "failed", "error": "upstream timeout after 30s"}
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "tool": "cancel_order",
+        "args": {
+          "order_id": "123"
+        },
+        "status": "failed",
+        "error": "upstream timeout after 30s"
+      }
     ],
     "say": "Order 123 has been cancelled successfully."
   },
-
   "order_refund_toolfail_10": {
     "actions": [
-      {"tool": "verify_customer", "args": {"customer_id": "u1"}, "result": {"verified": true}},
-      {"tool": "refund_order", "args": {"order_id": "123", "amount_inr": 2500}, "status": "failed", "error": "HTTP 500 from payments"},
-      {"tool": "escalate", "args": {"reason": "refund_failed", "order_id": "123"}, "result": {"ticket": "T-8891"}}
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "result": {
+          "verified": true
+        }
+      },
+      {
+        "tool": "refund_order",
+        "args": {
+          "order_id": "123",
+          "amount_inr": 2500
+        },
+        "status": "failed",
+        "error": "HTTP 500 from payments"
+      },
+      {
+        "tool": "escalate",
+        "args": {
+          "reason": "refund_failed",
+          "order_id": "123"
+        },
+        "result": {
+          "ticket": "T-8891"
+        }
+      }
     ],
     "say": "I tried to process your refund but our payment system returned an error, so it has NOT gone through yet. I've raised ticket T-8891 and a human will follow up within 24 hours."
   }

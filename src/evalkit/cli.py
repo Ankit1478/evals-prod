@@ -13,6 +13,7 @@ from rich.table import Table
 from evalkit.adapters.echo import EchoAdapter
 from evalkit.graders.composite import grade_all
 from evalkit.stats.gate import load_results, run_gate
+from evalkit.stats.summary import summarise_cases, summarise_suite
 from evalkit.harness.runner import run_suite
 from evalkit.schema.case import load_cases
 from evalkit.schema.trajectory import StepType, Trajectory
@@ -73,11 +74,41 @@ def run(
 
     console.print(table)
 
-    passed = sum(1 for r in results if r.passed)
-    total = len(results)
-    pct = 100 * passed / total if total else 0
-    colour = "green" if passed == total else "red"
-    console.print(f"\n[bold {colour}]{passed}/{total} passed  ({pct:.0f}%)[/bold {colour}]")
+    kinds = {c.id: c.kind for c in cases}
+    per_case = summarise_cases(results, kinds)
+    per_suite = summarise_suite(per_case)
+
+    stats = Table(title="reliability", header_style="bold")
+    stats.add_column("suite")
+    stats.add_column("cases", justify="right")
+    stats.add_column("pass@1", justify="right")
+    stats.add_column(f"pass^{trials}", justify="right")
+    stats.add_column("95% CI", justify="center")
+    stats.add_column("flaky")
+
+    for s_ in per_suite:
+        colour = "green" if s_.pass_hat_k == 1.0 else "red"
+        stats.add_row(
+            s_.kind, str(s_.cases),
+            f"{s_.pass_at_1:.0%}",
+            f"[{colour}]{s_.pass_hat_k:.0%}[/{colour}]",
+            f"{s_.ci_low:.0%} - {s_.ci_high:.0%}",
+            ", ".join(s_.flaky_cases) or "[dim]none[/dim]",
+        )
+    console.print()
+    console.print(stats)
+
+    flaky = [c.case_id for c in per_case if c.flaky]
+    if flaky:
+        console.print(f"\n[yellow]flaky:[/yellow] "
+                      + ", ".join(f"{c.case_id} ({c.passed}/{c.trials})"
+                                  for c in per_case if c.flaky))
+        console.print("[dim]passed sometimes, failed sometimes - the most "
+                      "dangerous result there is[/dim]")
+
+    reliable = sum(1 for c in per_case if c.pass_hat_k == 1.0)
+    console.print(f"\n[bold]{reliable}/{len(per_case)} cases passed every "
+                  f"trial[/bold]  [dim](pass^{trials})[/dim]")
     console.print(f"[dim]recordings: runs/{run_id}/trajectories/[/dim]")
 
 
@@ -136,9 +167,14 @@ def trace(
         elif s.type is StepType.TOOL_RESULT:
             console.print(f"{n}  [dim]result     {s.content}[/dim]")
 
-    console.print(f"\n[bold]state changes:[/bold] "
-                  + (f"{len(t.state_diff)}" if t.state_diff
-                     else "[dim]none (no fake DB yet - that is Box 6)[/dim]"))
+    if t.state_diff:
+        console.print("\n[bold]state changes:[/bold]")
+        for c in t.state_diff:
+            console.print(f"     [yellow]{c.entity}[/yellow].{c.field}  "
+                          f"{c.before!r} [dim]->[/dim] [bold]{c.after!r}[/bold]")
+    else:
+        console.print("\n[bold]state changes:[/bold] [dim]none - "
+                      "the database is unchanged[/dim]")
     console.print(f"[dim]tokens {t.usage.input_tokens} in / "
                   f"{t.usage.output_tokens} out  ·  {t.latency_ms} ms[/dim]\n")
 
