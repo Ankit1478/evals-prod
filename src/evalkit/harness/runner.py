@@ -25,7 +25,8 @@ def new_run_id() -> str:
 
 
 async def run_one(adapter: Adapter, case: Case, run_id: str,
-                  trial_index: int = 0) -> Trajectory:
+                  trial_index: int = 0,
+                  faults: dict[str, str] | None = None) -> Trajectory:
     """Run ONE case. Always returns a Trajectory - never raises.
 
     This is the rule that protects the denominator: a crash is a RECORDED
@@ -35,7 +36,7 @@ async def run_one(adapter: Adapter, case: Case, run_id: str,
     # A FRESH environment per trial. Never shared, never reused - leftover
     # state from trial N makes trial N+1 fail for reasons that have nothing
     # to do with the agent.
-    env = MemoryEnv()
+    env = MemoryEnv(faults=faults)
     await env.setup(case.initial_state)
     before = await env.snapshot()
 
@@ -68,7 +69,9 @@ async def run_one(adapter: Adapter, case: Case, run_id: str,
 
 
 async def run_suite(adapter: Adapter, cases: list[Case], runs_dir: Path,
-                    trials: int = 1) -> tuple[str, list[Trajectory]]:
+                    trials: int = 1,
+                    faults_by_case: dict[str, dict[str, str]] | None = None,
+                    ) -> tuple[str, list[Trajectory]]:
     """Run every case `trials` times. Write everything to runs/<run_id>/."""
     run_id = new_run_id()
     out = runs_dir / run_id
@@ -83,13 +86,15 @@ async def run_suite(adapter: Adapter, cases: list[Case], runs_dir: Path,
         "adapter": adapter.describe(),
         "case_count": len(cases),
         "trials_per_case": trials,
+        "faults": faults_by_case or {},
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
     trajectories: list[Trajectory] = []
     for case in cases:
         for trial in range(trials):
-            traj = await run_one(adapter, case, run_id, trial)
+            traj = await run_one(adapter, case, run_id, trial,
+                                 faults=(faults_by_case or {}).get(case.id))
             trajectories.append(traj)
             path = out / "trajectories" / f"{case.id}__trial{trial}.json"
             path.write_text(traj.model_dump_json(indent=2))

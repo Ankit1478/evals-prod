@@ -1,7 +1,6 @@
-.claude/settings.local.json
+runs/
+.env
 __pycache__/
-*.pyc
 .venv/
-.DS_Store
-runs/*
-!runs/.gitkeep
+.pytest_cache/
+*.pyc

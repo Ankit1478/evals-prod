@@ -1,0 +1,10 @@
+{
+  "_comment": "Which tools break, per case. The backend failing is a behaviour to test, not an accident. Case -> tool -> the error the agent sees.",
+
+  "order_cancel_toolfail_09": {
+    "cancel_order": "upstream timeout after 30s"
+  },
+  "order_refund_toolfail_10": {
+    "refund_order": "HTTP 500 from payments service"
+  }
+}

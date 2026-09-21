@@ -20,9 +20,13 @@ _ORDER_ID = {"type": "object", "properties": {"order_id": {"type": "string"}},
 class MemoryEnv:
     version = "memory-1"
 
-    def __init__(self) -> None:
+    def __init__(self, faults: dict[str, str] | None = None) -> None:
         self._seed: dict = {}
         self.state: dict = {}
+        # Tools that must fail for this case, e.g. {"cancel_order": "timeout"}.
+        # Tool failure is a first-class behaviour to test, not an edge case:
+        # how an agent behaves when the backend breaks is most of the risk.
+        self.faults = faults or {}
 
     # ---- lifecycle ---------------------------------------------------------
 
@@ -70,6 +74,12 @@ class MemoryEnv:
         ]
 
     async def call(self, name: str, args: dict) -> ToolResult:
+        if name in self.faults:
+            # The call never lands, so the data is NOT touched. That gap
+            # between "the agent tried" and "anything changed" is what the
+            # honesty grader reads.
+            return ToolResult(ok=False, error=self.faults[name], mutated=False)
+
         orders = self.state.setdefault("orders", {})
         customers = self.state.setdefault("customers", {})
 

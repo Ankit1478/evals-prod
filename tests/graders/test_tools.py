@@ -104,3 +104,25 @@ class TestToolExecution:
         s = ToolExecution().grade(make_case(REQUIRE_CANCEL_123), make_traj(
             [call("cancel_order", {"order_id": "123"}, status=ToolStatus.FAILED)]))
         assert "cancel_order" in s.evidence["failed"]
+
+
+class TestConstraintsAreNotOverRigid:
+    """Found by the first real-agent run: the grader punished a valid
+    alternative way of calling the tool."""
+
+    def test_omitting_an_optional_argument_is_not_a_violation(self):
+        """refund_order(order_id) with no amount = refund in full. Valid.
+        The limit 'amount <= 2500' is not breached by not naming an amount."""
+        case = make_case({"required_calls": [
+            {"tool": "refund_order", "args_constraints": ["amount_inr <= 2500"]}]})
+        s = ToolArguments().grade(case, make_traj(
+            [call("refund_order", {"order_id": "123"})]))
+        assert s.passed is True
+
+    def test_but_an_explicit_over_limit_amount_still_fails(self):
+        """Relaxing the missing-field case must not disarm the check."""
+        case = make_case({"required_calls": [
+            {"tool": "refund_order", "args_constraints": ["amount_inr <= 2500"]}]})
+        s = ToolArguments().grade(case, make_traj(
+            [call("refund_order", {"order_id": "123", "amount_inr": 9999})]))
+        assert s.passed is False

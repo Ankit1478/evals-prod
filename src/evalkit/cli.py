@@ -6,11 +6,14 @@ import asyncio
 import json
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from evalkit.adapters.echo import EchoAdapter
+from evalkit.adapters.inprocess import InProcessAdapter
 from evalkit.graders.composite import grade_all
 from evalkit.stats.gate import load_results, run_gate
 from evalkit.stats.summary import summarise_cases, summarise_suite
@@ -32,17 +35,33 @@ def run(
     suite: str = typer.Argument(..., help="path to a suite, e.g. suites/support-agent"),
     dataset: str = typer.Option("regression", help="which cases file to run"),
     trials: int = typer.Option(1, help="how many times to run each case"),
+    adapter_name: str = typer.Option("echo", "--adapter",
+                                     help="echo (scripted fake) or inprocess (real agent)"),
+    target: str = typer.Option("agent.support_agent:run_agent", "--target",
+                               help="module:function, for --adapter inprocess"),
+    model: str | None = typer.Option(None, "--model", help="override the agent's model"),
 ):
     """Run every case against the agent and save the recordings."""
+    load_dotenv()                       # picks up OPENAI_API_KEY from .env
     suite_dir = Path(suite)
     cases = load_cases(suite_dir / "cases" / f"{dataset}.jsonl")
-    adapter = EchoAdapter(suite_dir / "echo_script.json")
+
+    if adapter_name == "echo":
+        adapter = EchoAdapter(suite_dir / "echo_script.json")
+    elif adapter_name == "inprocess":
+        adapter = InProcessAdapter(target, model=model)
+    else:
+        raise typer.BadParameter(f"unknown adapter: {adapter_name}")
 
     console.print(f"[bold]{len(cases)}[/bold] cases  x  [bold]{trials}[/bold] trial(s)"
                   f"  ->  adapter [cyan]{adapter.name}[/cyan]\n")
 
+    faults_path = suite_dir / "faults.json"
+    faults = json.loads(faults_path.read_text()) if faults_path.exists() else {}
+    faults = {k: v for k, v in faults.items() if not k.startswith("_")}
+
     run_id, trajectories = asyncio.run(
-        run_suite(adapter, cases, Path("runs"), trials)
+        run_suite(adapter, cases, Path("runs"), trials, faults_by_case=faults)
     )
 
     by_id = {c.id: c for c in cases}
