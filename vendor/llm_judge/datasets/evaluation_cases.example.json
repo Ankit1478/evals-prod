@@ -1,0 +1,183 @@
+[
+  {
+    "case_id": "score-good-math",
+    "case_kind": "good",
+    "mode": "score",
+    "reference_policy": "required",
+    "question": "What is 2 + 2?",
+    "reference_answer": "2 + 2 equals 4.",
+    "candidate_answer": "2 + 2 equals 4.",
+    "expected_scores": {
+      "correctness": 5,
+      "relevance": 5,
+      "completeness": 5,
+      "clarity": 5
+    },
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested label; a human reviewer must confirm it."
+  },
+  {
+    "case_id": "binary-good-support",
+    "case_kind": "good",
+    "mode": "binary",
+    "reference_policy": "required",
+    "question": "Does the response correctly state the support hours?",
+    "reference_answer": "Support is available from 9 AM to 5 PM on weekdays.",
+    "candidate_answer": "Support is open weekdays from 9 AM until 5 PM.",
+    "expected_binary_decision": "PASS",
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested label; a human reviewer must confirm it."
+  },
+  {
+    "case_id": "score-bad-capital",
+    "case_kind": "bad",
+    "mode": "score",
+    "reference_policy": "required",
+    "question": "What is the capital of France?",
+    "reference_answer": "Paris is the capital of France.",
+    "candidate_answer": "Lyon is the capital of France.",
+    "expected_scores": {
+      "correctness": 1,
+      "relevance": 4,
+      "completeness": 2,
+      "clarity": 4
+    },
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested label; a human reviewer must confirm it."
+  },
+  {
+    "case_id": "binary-bad-refund",
+    "case_kind": "bad",
+    "mode": "binary",
+    "reference_policy": "required",
+    "question": "Does the response state the correct refund period?",
+    "reference_answer": "Customers may request a refund within 30 days.",
+    "candidate_answer": "Customers may request a refund within 90 days.",
+    "expected_binary_decision": "FAIL",
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested label; a human reviewer must confirm it."
+  },
+  {
+    "case_id": "score-borderline-photosynthesis",
+    "case_kind": "borderline",
+    "mode": "score",
+    "reference_policy": "required",
+    "question": "Briefly explain photosynthesis.",
+    "reference_answer": "Plants use light energy to convert water and carbon dioxide into chemical energy, releasing oxygen.",
+    "candidate_answer": "Plants use sunlight to make food.",
+    "expected_scores": {
+      "correctness": 3,
+      "relevance": 4,
+      "completeness": 3,
+      "clarity": 4
+    },
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested borderline label; a subject reviewer must confirm it."
+  },
+  {
+    "case_id": "score-borderline-password",
+    "case_kind": "borderline",
+    "mode": "score",
+    "reference_policy": "required",
+    "question": "Give the two required password rules.",
+    "reference_answer": "A password must contain at least 12 characters and one special character.",
+    "candidate_answer": "Use a password with at least 12 characters.",
+    "expected_scores": {
+      "correctness": 4,
+      "relevance": 5,
+      "completeness": 3,
+      "clarity": 5
+    },
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested borderline label; a policy reviewer must confirm it."
+  },
+  {
+    "case_id": "pairwise-a-wins-python",
+    "case_kind": "pairwise_a_wins",
+    "mode": "pairwise",
+    "reference_policy": "required",
+    "question": "What is Python in software development?",
+    "reference_answer": "Python is a programming language.",
+    "candidate_answer": "Python is a general-purpose programming language.",
+    "candidate_b": "Python is only a type of snake.",
+    "expected_pairwise_decision": "A_WINS",
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested label; a human reviewer must confirm it."
+  },
+  {
+    "case_id": "pairwise-a-wins-boiling",
+    "case_kind": "pairwise_a_wins",
+    "mode": "pairwise",
+    "reference_policy": "required",
+    "question": "At standard pressure, when does water boil?",
+    "reference_answer": "Water boils at 100 degrees Celsius at standard pressure.",
+    "candidate_answer": "Water boils at 100 degrees Celsius.",
+    "candidate_b": "Water boils at 0 degrees Celsius.",
+    "expected_pairwise_decision": "A_WINS",
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested label; a human reviewer must confirm it."
+  },
+  {
+    "case_id": "pairwise-b-wins-freezing",
+    "case_kind": "pairwise_b_wins",
+    "mode": "pairwise",
+    "reference_policy": "required",
+    "question": "At standard pressure, when does water freeze?",
+    "reference_answer": "Water freezes at 0 degrees Celsius at standard pressure.",
+    "candidate_answer": "Water freezes at 100 degrees Celsius.",
+    "candidate_b": "Water freezes at 0 degrees Celsius.",
+    "expected_pairwise_decision": "B_WINS",
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested label; a human reviewer must confirm it."
+  },
+  {
+    "case_id": "pairwise-b-wins-france",
+    "case_kind": "pairwise_b_wins",
+    "mode": "pairwise",
+    "reference_policy": "required",
+    "question": "What is the capital of France?",
+    "reference_answer": "Paris is the capital of France.",
+    "candidate_answer": "The capital is Marseille.",
+    "candidate_b": "The capital is Paris.",
+    "expected_pairwise_decision": "B_WINS",
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested label; a human reviewer must confirm it."
+  },
+  {
+    "case_id": "pairwise-tie-rewrite",
+    "case_kind": "pairwise_tie",
+    "mode": "pairwise",
+    "reference_policy": "reference_free",
+    "question": "Rewrite 'The meeting was postponed' in simple language.",
+    "candidate_answer": "The meeting was moved to a later time.",
+    "candidate_b": "The meeting will happen later than planned.",
+    "expected_pairwise_decision": "TIE",
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested tie; a human reviewer must confirm equal quality."
+  },
+  {
+    "case_id": "pairwise-tie-jupiter",
+    "case_kind": "pairwise_tie",
+    "mode": "pairwise",
+    "reference_policy": "required",
+    "question": "Which is the largest planet in the Solar System?",
+    "reference_answer": "Jupiter is the largest planet in the Solar System.",
+    "candidate_answer": "Jupiter is the largest planet.",
+    "candidate_b": "The Solar System's biggest planet is Jupiter.",
+    "expected_pairwise_decision": "TIE",
+    "review_status": "draft",
+    "reviewer_count": 0,
+    "review_notes": "Suggested tie; a human reviewer must confirm equal quality."
+  }
+]

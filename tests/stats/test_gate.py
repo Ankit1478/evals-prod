@@ -72,3 +72,30 @@ def test_a_flaky_case_fails_pass_hat_k():
     v = run_gate(results, kinds("c0"), THRESHOLDS)
     assert v.exit_code == EXIT_FAILED
     assert "flaky" in str(v.stages[-1].detail)
+
+
+# --- rubric governance (vendored LLM_AS_JUDGE) -------------------------------
+
+def test_rubric_approval_is_off_by_default_and_does_not_add_a_stage():
+    v = run_gate([result("c0")], kinds("c0"), THRESHOLDS)
+    assert all(not s.stage.startswith("0b") for s in v.stages)
+
+
+def test_the_shipped_template_approval_is_rejected(tmp_path):
+    """The example approval file matches the rubric's fingerprint but is a
+    DRAFT with no reviewers - it must never pass as production sign-off."""
+    import shutil
+    from pathlib import Path
+    shutil.copy(Path("vendor/llm_judge/config/rubric_approval.example.json"),
+                tmp_path / "rubric_approval.json")
+    th = {**THRESHOLDS, "require_rubric_approval": True}
+    v = run_gate([result("c0")], kinds("c0"), th, suite_dir=tmp_path)
+    assert v.exit_code == EXIT_INVALID
+    assert v.blocked_by.startswith("0b")
+
+
+def test_a_missing_approval_file_blocks_when_required(tmp_path):
+    th = {**THRESHOLDS, "require_rubric_approval": True}
+    v = run_gate([result("c0")], kinds("c0"), th, suite_dir=tmp_path)
+    assert v.exit_code == EXIT_INVALID
+    assert "no rubric approval file" in v.stages[-1].detail

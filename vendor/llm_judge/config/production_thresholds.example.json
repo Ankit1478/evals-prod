@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "minimum_completed_cases": 100,
+  "maximum_runner_failure_rate": 0.01,
+  "maximum_human_review_rate": 0.2,
+  "maximum_model_disagreement_rate": 0.1,
+  "minimum_cohens_kappa": 0.8,
+  "minimum_pass_fail_accuracy_lower_bound": 0.9,
+  "maximum_false_pass_rate_upper_bound": 0.05,
+  "maximum_false_fail_rate_upper_bound": 0.1,
+  "minimum_pairwise_accuracy_lower_bound": 0.9,
+  "minimum_score_correlation": 0.8,
+  "minimum_repeat_consistency": 0.95,
+  "maximum_position_flip_rate": 0.05,
+  "maximum_stability_failure_rate": 0.01
+}

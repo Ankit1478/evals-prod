@@ -1,0 +1,27 @@
+{
+  "approval_id": "answer-quality-v2-production-template",
+  "rubric_name": "answer_quality",
+  "rubric_version": "2.0.0",
+  "rubric_fingerprint": "e8c2ad71e8956c9198683bee94aa1e2709522c2a575b29d8fd117f794160a2e1",
+  "status": "draft",
+  "intended_use": "Evaluate text answers for correctness, relevance, completeness, and clarity in the documented answer-quality workflow.",
+  "prohibited_uses": [
+    "Do not use for medical diagnosis, legal advice, or other high-risk decisions without a specialized rubric and approvals."
+  ],
+  "known_limitations": [
+    "The general rubric requires representative domain-specific human validation before production use."
+  ],
+  "validation_evidence": {
+    "evidence_id": "replace-with-real-validation-id",
+    "dataset_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+    "report_location": "replace-with-controlled-report-location",
+    "report_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+    "human_reviewed_cases": 0,
+    "passed": false,
+    "coverage_notes": "Template only. Document real human-reviewed scenario and boundary coverage."
+  },
+  "reviewer_attestations": [],
+  "approved_on": null,
+  "expires_on": null,
+  "decision_notes": "Template only. This file is not production approval."
+}

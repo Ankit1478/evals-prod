@@ -1,6 +1,9 @@
 {
   "_comment": "The gate's rules. Different case kinds get different bars.",
 
+  "_require_rubric_approval": "Governance, not statistics: was the judge's rubric signed off by real human reviewers? Needs 30+ human-reviewed cases and two named reviewers of different roles. The shipped file is a TEMPLATE that fails on purpose - turn this on once you have genuine sign-off.",
+  "require_rubric_approval": false,
+
   "critical_failures_allowed": 0,
   "invalid_trials_allowed": 0,
 

@@ -42,11 +42,39 @@ class Verdict(Frozen):
         return None
 
 
+def check_rubric_approval(approval_path: Path) -> tuple[bool, str]:
+    """Is the judge's rubric approved for production use?
+
+    Delegates entirely to the vendored governance module, which fingerprints
+    the rubric (SHA-256 over its canonical form) so that editing a single
+    word of it invalidates the prior human sign-off. A judge grading against
+    an unapproved rubric is not a result anyone should ship on.
+    """
+    from llm_judge.rubric import ACTIVE_RUBRIC
+    from llm_judge.rubric_approval import (load_rubric_approval,
+                                           validate_rubric_approval)
+
+    if not approval_path.exists():
+        return False, f"no rubric approval file at {approval_path}"
+    try:
+        approval = load_rubric_approval(approval_path)
+        v = validate_rubric_approval(ACTIVE_RUBRIC, approval)
+    except Exception as e:
+        return False, f"rubric approval file is unusable: {type(e).__name__}: {e}"
+
+    if v.valid_for_production:
+        return True, (f"rubric '{v.rubric_name}' v{v.rubric_version} approved "
+                      f"({v.approval_id})")
+    return False, (f"rubric '{v.rubric_name}' v{v.rubric_version} is NOT approved "
+                   f"for production - failed: {', '.join(v.failed_check_ids)}")
+
+
 def run_gate(results: list[CaseResult], kinds: dict[str, str],
-             thresholds: dict) -> Verdict:
+             thresholds: dict, suite_dir: Path | None = None) -> Verdict:
     """results  - one per case/trial
        kinds    - case_id -> "regression" | "adversarial" | "capability"
        thresholds - loaded from thresholds.json
+       suite_dir  - needed only for the optional rubric-approval check
     """
     stages: list[StageResult] = []
 
@@ -66,6 +94,17 @@ def run_gate(results: list[CaseResult], kinds: dict[str, str],
         return Verdict(passed=False, exit_code=EXIT_INVALID, stages=stages)
     stages.append(StageResult(stage="0 VALIDITY", passed=True,
                               detail=f"{len(results)} trial(s) completed, none invalid"))
+
+    # ---- stage 0b: RUBRIC APPROVAL ----------------------------------------
+    # Governance, not statistics: was the rubric the judge used actually
+    # signed off by humans? Opt-in, because real approval needs real
+    # reviewers - a shipped template deliberately fails this.
+    if thresholds.get("require_rubric_approval", False):
+        path = (suite_dir or Path(".")) / "rubric_approval.json"
+        ok, detail = check_rubric_approval(path)
+        stages.append(StageResult(stage="0b RUBRIC", passed=ok, detail=detail))
+        if not ok:
+            return Verdict(passed=False, exit_code=EXIT_INVALID, stages=stages)
 
     # ---- stage 1: CRITICAL -------------------------------------------------
     # One critical failure vetoes everything, whatever the overall score is.

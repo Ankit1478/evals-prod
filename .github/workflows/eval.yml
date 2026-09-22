@@ -1,0 +1,34 @@
+name: eval gate
+
+# Runs on every PR and on main. `ef gate`'s exit code is what decides the
+# checkmark: 0 = pass, 2 = agent regressed, 3 = the eval itself is broken.
+# GitHub reads the job's exit status, so a non-zero `ef gate` fails the job,
+# which blocks the merge if this check is marked required in branch protection.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Install
+        run: uv sync --all-groups
+
+      - name: Unit tests (graders, gate, stats)
+        run: uv run pytest
+
+      - name: Run the regression suite
+        # Default adapter is `echo` - the scripted fake - so this job needs
+        # no API key and stays fast and free. Switch to `--adapter inprocess`
+        # (and add OPENAI_API_KEY as a repo secret) once you want CI judging
+        # the real agent instead of the harness itself.
+        run: uv run ef run suites/support-agent
+
+      - name: Ship / no-ship gate
+        run: uv run ef gate

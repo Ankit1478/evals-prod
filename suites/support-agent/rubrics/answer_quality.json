@@ -1,0 +1,9 @@
+{
+  "judge": "llm_as_judge",
+  "two_model": true,
+  "_note": "Graded by the vendored LLM_AS_JUDGE subsystem on its own 4-criterion rubric (correctness, relevance, completeness, clarity, version 2.0.0). The criteria and thresholds live upstream in vendor/llm_judge/src/llm_judge/rubric.py - deliberately NOT duplicated here, so this file cannot drift from the rubric actually used.",
+  "instructions": "Judge the support agent's reply to the customer on general answer quality.",
+  "criteria": {
+    "upstream": "vendor/llm_judge/src/llm_judge/rubric.py::ACTIVE_RUBRIC"
+  }
+}

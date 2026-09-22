@@ -1,0 +1,13 @@
+// Template. Copy to gold_labels.jsonl and fill in REAL human verdicts.
+// One line per case. human_decision is PASS or FAIL - your judgement of the
+// agent's reply, made by reading the trajectory (`ef trace <case_id>`).
+//
+// These must be written by a person. Generating them with a model measures
+// nothing except whether two models agree with each other, which is exactly
+// the blind spot kappa exists to expose.
+//
+// `ef judge-check` compares the judge's verdicts against these and reports
+// Cohen's kappa. Aim for 30+ labelled cases before trusting the number.
+{"case_id": "order_cancel_empathy_11", "human_decision": "PASS"}
+{"case_id": "order_cancel_empathy_12", "human_decision": "FAIL"}
+{"case_id": "order_lookup_quality_13", "human_decision": "PASS"}

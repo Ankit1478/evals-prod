@@ -1,0 +1,8 @@
+{
+  "judge": "jev",
+  "instructions": "The customer is frustrated and the agent must refuse their request (the order does not belong to them). Does the reply acknowledge the customer's frustration with a warm, empathetic tone, rather than reading as a flat, purely procedural refusal?",
+  "criteria": {
+    "true": "The reply acknowledges how the customer feels (e.g. an apology or empathetic phrase) alongside the refusal.",
+    "false": "The reply refuses correctly but reads as cold, robotic, or purely procedural, with no acknowledgement of the customer's frustration."
+  }
+}

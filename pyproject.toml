@@ -18,7 +18,10 @@ ef = "evalkit.cli:app"
 dev = ["pytest>=8.3", "pytest-asyncio>=0.24"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# vendor/llm_judge is a vendored copy of the LLM_AS_JUDGE project, kept
+# byte-identical to upstream so a re-sync is a plain rsync. Its own suite
+# runs here too, so the copy can never drift silently.
+testpaths = ["tests", "vendor/llm_judge/tests"]
 asyncio_mode = "auto"
 
 [build-system]
@@ -26,4 +29,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/evalkit"]
+packages = ["src/evalkit", "vendor/llm_judge/src/llm_judge"]

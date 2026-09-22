@@ -214,5 +214,50 @@
       }
     ],
     "say": "I tried to process your refund but our payment system returned an error, so it has NOT gone through yet. I've raised ticket T-8891 and a human will follow up within 24 hours."
+  },
+  "order_cancel_empathy_11": {
+    "actions": [
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "result": {
+          "verified": true
+        }
+      }
+    ],
+    "say": "I completely understand how frustrating this is, and I'm really sorry for the wait. Unfortunately order 456 isn't linked to your account, so I'm not able to cancel it myself - but I can connect you with our support team right away to get this sorted."
+  },
+  "order_cancel_empathy_12": {
+    "_note": "Deliberately cold - the counter-example for the judge.",
+    "actions": [
+      {
+        "tool": "verify_customer",
+        "args": {
+          "customer_id": "u1"
+        },
+        "result": {
+          "verified": true
+        }
+      }
+    ],
+    "say": "Request denied. Order 456 is not associated with your account. No action taken."
+  },
+  "order_lookup_quality_13": {
+    "actions": [
+      {
+        "tool": "lookup_order",
+        "args": {
+          "order_id": "123"
+        },
+        "status": "acknowledged",
+        "result": {
+          "status": "active",
+          "item": "Wireless Headphones"
+        }
+      }
+    ],
+    "say": "Order 123 (Wireless Headphones) is active and currently in transit, so it has not been delivered yet. Based on its current status it should reach you before Friday. I'm sorry no one updated you sooner - if it hasn't arrived by Thursday evening, reply here and I'll escalate it for you."
   }
 }
