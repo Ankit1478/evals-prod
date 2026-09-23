@@ -127,3 +127,17 @@ async def test_a_confidently_failing_judge_score_can_sink_a_case(tmp_path, monke
     judge = JevJudge(rubric_dir=rubric_dir, transport=transport)
     out = await augment_with_judge(result, case, make_traj(say="Denied."), judge)
     assert out.passed is False
+
+
+async def test_jev_model_comes_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("JEV", "token")
+    monkeypatch.setenv("JEV_MODEL", "jev-pinned-1")
+    sent = {}
+
+    async def transport(url, headers, body):
+        sent.update(body)
+        return {"answers": {"meets_rubric": {"noul": 0.9}}}
+
+    judge = JevJudge(rubric_dir=write_rubric(tmp_path / "rubrics"), transport=transport)
+    await judge.grade(make_case(expected={"rubric_id": "empathetic_refusal"}), make_traj())
+    assert sent["model"] == "jev-pinned-1"

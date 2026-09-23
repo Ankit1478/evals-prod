@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class Frozen(BaseModel):
@@ -31,6 +31,20 @@ class CaseInput(Frozen):
     messages: list[Message]
     persona: str | None = None
     max_turns: int = 1
+
+
+class UserSim(Frozen):
+    """The user's side of a multi-turn case. Never shown to the agent.
+
+    goal    what the user is trying to get done, in their own words
+    facts   what the user knows and gives when asked ("account": "ACME QA")
+    script  fixed replies, used in order. With a script no model plays the
+            user, so the case is cheap and repeatable. Without one, the
+            --user-model plays the user, in the style of input.persona.
+    """
+    goal: str
+    facts: dict = {}
+    script: list[str] = []
 
 
 class ExpectedCall(Frozen):
@@ -65,6 +79,7 @@ class Case(Frozen):
     input: CaseInput
     initial_state: dict
     expected: Expected
+    user_sim: UserSim | None = None
     tags: list[str] = []
     max_steps: int = 20
     timeout_s: int = 120
@@ -72,6 +87,14 @@ class Case(Frozen):
     source: Literal["handwritten", "production", "synthetic"] = "handwritten"
     added_at: date
     notes: str = ""
+
+    @model_validator(mode="after")
+    def _multi_turn_needs_a_user(self) -> "Case":
+        # Without this, a max_turns=5 case with nobody to answer the agent
+        # quietly runs as a single turn and "passes" something it never tested.
+        if self.input.max_turns > 1 and self.user_sim is None:
+            raise ValueError(f"{self.id}: max_turns > 1 needs user_sim")
+        return self
 
 
 def load_cases(path: str | Path) -> list[Case]:

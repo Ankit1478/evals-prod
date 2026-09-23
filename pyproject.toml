@@ -9,6 +9,7 @@ dependencies = [
     "rich>=13.7",
     "openai>=3.16.2",
     "python-dotenv>=1.2.3",
+    "anthropic[bedrock]>=1.8.0",
 ]
 
 [project.scripts]

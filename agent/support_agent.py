@@ -52,6 +52,23 @@ async def _create(client: AsyncOpenAI, **kwargs):
     raise RuntimeError("could not find a parameter set this model accepts")
 
 
+def _openai_model(spec: str | None) -> str:
+    """AGENT_MODEL / --model spec -> the bare OpenAI model name.
+
+    This agent is written against the OpenAI SDK, so it runs on OpenAI only.
+    For Claude, Bedrock or Foundry use agent.tool_agent, which is built on
+    the provider layer.
+    """
+    spec = spec or os.environ.get("AGENT_MODEL") or "openai:gpt-4o-mini"
+    platform, sep, name = spec.partition(":")
+    if not sep:
+        return spec                          # bare "gpt-4o-mini"
+    if platform != "openai":
+        raise ValueError(f"support_agent runs on OpenAI only, got {spec!r} - "
+                         f"use --target agent.tool_agent:run_agent for {platform}")
+    return name or "gpt-4o-mini"
+
+
 def _to_openai_tools(specs: list) -> list[dict]:
     return [{"type": "function",
              "function": {"name": s.name, "description": s.description,
@@ -72,7 +89,7 @@ async def run_agent(messages: list[dict], tool_specs: list,
     whether it is talking to a fake database or a real one.
     """
     client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    model = _openai_model(model)
 
     system = SYSTEM_PROMPT
     caller = (context or {}).get("customer_id")

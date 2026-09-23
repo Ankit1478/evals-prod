@@ -45,7 +45,7 @@ def _normalise(weighted_score: float) -> float:
 def judge_backend() -> tuple[Any, Any | None]:
     """(settings, sdk_client) for the vendored judge.
 
-    LLM_JUDGE_PROVIDER=openai (default): OPENAI_API_KEY + OPENAI_MODEL. The
+    LLM_JUDGE_PROVIDER=openai (default): OPENAI_API_KEY + JUDGE_MODEL. The
     vendored AzureJudgeClient builds a plain chat.completions request, so a
     regular OpenAI SDK client is injected into it - no vendored code changes.
     LLM_JUDGE_PROVIDER=azure: AZURE_OPENAI_* exactly as upstream intended;
@@ -64,7 +64,9 @@ def judge_backend() -> tuple[Any, Any | None]:
         # Unused by the injected client; only satisfies the settings schema.
         endpoint="https://api.openai.com/v1",
         api_key=key,
-        deployment=os.environ.get("OPENAI_MODEL") or "gpt-4o-mini",
+        # Its own setting, never the agent's: a judge that shares the
+        # agent's model is grading its own answers.
+        deployment=os.environ.get("JUDGE_MODEL") or "gpt-5.6-terra",
         api_version="openai",
     )
     from openai import OpenAI
@@ -75,8 +77,8 @@ def judge_backend() -> tuple[Any, Any | None]:
 def build_two_model_judge(settings: Any, sdk_client: Any | None) -> Any:
     """Two independent judges on whichever backend judge_backend() chose.
 
-    On OpenAI: terra slot = OPENAI_JUDGE_MODEL (default gpt-5.6-terra),
-    luna slot = OPENAI_MODEL. Upstream pins the slot names and rejects a
+    On OpenAI: terra slot = JUDGE_MODEL (default gpt-5.6-terra),
+    luna slot = JUDGE_MODEL_2 (default gpt-5.6-luna). Upstream pins the slot names and rejects a
     client reporting any other deployment, so each client reports its slot
     name while the request carries the configured model.
     """
@@ -86,11 +88,11 @@ def build_two_model_judge(settings: Any, sdk_client: Any | None) -> Any:
     if sdk_client is None:
         return TwoModelJudge.from_settings(settings)
 
-    terra = os.environ.get("OPENAI_JUDGE_MODEL") or JudgeModel.TERRA.value
-    luna = settings.deployment
+    terra = settings.deployment
+    luna = os.environ.get("JUDGE_MODEL_2") or JudgeModel.LUNA.value
     if terra == luna:
         raise ValueError(f"both judges would be {terra} - a second opinion must "
-                         f"come from a different model (set OPENAI_JUDGE_MODEL)")
+                         f"come from a different model (set JUDGE_MODEL_2)")
 
     def client_for(slot: Any, model: str) -> Any:
         class _SlotClient(AzureJudgeClient):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,6 +25,7 @@ from evalkit.stats.summary import summarise_cases, summarise_suite
 from evalkit.harness.runner import run_suite
 from evalkit.schema.case import load_cases
 from evalkit.schema.trajectory import StepType, Trajectory
+from evalkit.store import JsonlStore, RunSummary
 
 app = typer.Typer(add_completion=False, help="evalkit - agent evaluation harness")
 console = Console()
@@ -43,17 +45,30 @@ def run(
                                      help="echo (scripted fake) or inprocess (real agent)"),
     target: str = typer.Option("agent.support_agent:run_agent", "--target",
                                help="module:function, for --adapter inprocess"),
-    model: str | None = typer.Option(None, "--model", help="override the agent's model"),
+    model: str | None = typer.Option(None, "--model",
+                                     help="the agent's model (default: AGENT_MODEL in .env), "
+                                          "e.g. openai:gpt-4o-mini, anthropic:claude-opus-5, "
+                                          "bedrock:anthropic.claude-sonnet-5, "
+                                          "foundry:claude-opus-5, azure:<deployment>"),
+    user_model: str | None = typer.Option(None, "--user-model",
+                                          help="model that plays the user in multi-turn "
+                                               "cases (default: USER_MODEL in .env)"),
 ):
     """Run every case against the agent and save the recordings."""
-    load_dotenv()                       # picks up OPENAI_API_KEY from .env
+    import os
+
+    load_dotenv()                       # picks up keys and model choices from .env
+    # A flag wins; otherwise .env decides. Either way the manifest records
+    # the model actually used, so a run stays reproducible.
+    model = model or os.environ.get("AGENT_MODEL")
+    user_model = user_model or os.environ.get("USER_MODEL")
     suite_dir = Path(suite)
     cases = load_cases(suite_dir / "cases" / f"{dataset}.jsonl")
 
     if adapter_name == "echo":
         adapter = EchoAdapter(suite_dir / "echo_script.json")
     elif adapter_name == "inprocess":
-        adapter = InProcessAdapter(target, model=model)
+        adapter = InProcessAdapter(target, model=model, user_model=user_model)
     else:
         raise typer.BadParameter(f"unknown adapter: {adapter_name}")
 
@@ -64,8 +79,10 @@ def run(
     faults = json.loads(faults_path.read_text()) if faults_path.exists() else {}
     faults = {k: v for k, v in faults.items() if not k.startswith("_")}
 
+    store = JsonlStore(Path("runs"))
     run_id, trajectories = asyncio.run(
-        run_suite(adapter, cases, Path("runs"), trials, faults_by_case=faults)
+        run_suite(adapter, cases, Path("runs"), trials, faults_by_case=faults,
+                  store=store)
     )
 
     by_id = {c.id: c for c in cases}
@@ -91,11 +108,8 @@ def run(
     # Save the verdicts next to the recordings, so `ef gate` can read them
     # later without re-running (and re-paying for) the agent.
     run_dir = Path("runs") / run_id
-    with (run_dir / "scores.jsonl").open("w") as f:
-        for r in results:
-            row = r.model_dump(mode="json")
-            row["kind"] = by_id[r.case_id].kind
-            f.write(json.dumps(row) + "\n")
+    for r in results:
+        store.write_result(r, kind=by_id[r.case_id].kind)
 
     table = Table(title=f"run {run_id}", header_style="bold")
     table.add_column("", justify="center", width=4, no_wrap=True)
@@ -151,8 +165,33 @@ def run(
                   f"trial[/bold]  [dim](pass^{trials})[/dim]")
     console.print(f"[dim]recordings: runs/{run_id}/trajectories/[/dim]")
 
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    store.finish_run(RunSummary(
+        run_id=run_id, suite=manifest["suite"], started_at=manifest["started_at"],
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        cases=len(cases), trials=trials, results=len(results),
+        passed=sum(1 for r in results if r.passed)))
+
     report_path = write_html_report(run_dir, run_id, results, per_suite)
     console.print(f"[dim]report: {report_path}[/dim]")
+
+
+@app.command()
+def runs(
+    suite: str | None = typer.Option(None, help="only runs of this suite"),
+    limit: int = typer.Option(20, help="how many to show"),
+):
+    """List past runs, newest first."""
+    table = Table(header_style="bold")
+    for col in ("run", "suite", "cases", "trials", "passed", "finished"):
+        table.add_column(col)
+    for s_ in JsonlStore(Path("runs")).list_runs(suite=suite, limit=limit):
+        passed = f"{s_.passed}/{s_.results}" if s_.results else "[dim]-[/dim]"
+        table.add_row(s_.run_id, s_.suite, str(s_.cases), str(s_.trials), passed,
+                      s_.finished_at[:19] if s_.finished_at
+                      else "[yellow]open[/yellow]" if not s_.results
+                      else "[dim]no summary[/dim]")
+    console.print(table)
 
 
 if __name__ == "__main__":
@@ -379,8 +418,8 @@ def judge_attack(
         judge = build_two_model_judge(*judge_backend())
     except Exception as e:
         console.print(f"[red]cannot build the judge:[/red] {type(e).__name__}: {e}")
-        console.print("[dim]set OPENAI_API_KEY in .env (the key must be able to "
-                      "call both gpt-5.6-terra and gpt-5.6-luna)[/dim]")
+        console.print("[dim]set OPENAI_API_KEY in .env, and JUDGE_MODEL / "
+                      "JUDGE_MODEL_2 to two different models[/dim]")
         raise typer.Exit(3)
 
     try:

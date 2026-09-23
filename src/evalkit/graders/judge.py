@@ -96,7 +96,7 @@ class JevJudge:
         question = "meets_rubric"
         body = {
             "state": traj.final_output or "",
-            "model": "jev-latest",
+            "model": os.environ.get("JEV_MODEL") or "jev-latest",
             "questions": {
                 question: {
                     "type": "noul",

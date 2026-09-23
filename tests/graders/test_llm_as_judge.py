@@ -114,7 +114,7 @@ class RecordingFake(FakeAzure):
 async def test_default_provider_is_openai_with_the_openai_model(tmp_path, monkeypatch):
     monkeypatch.delenv("LLM_JUDGE_PROVIDER", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-test-model")
+    monkeypatch.setenv("JUDGE_MODEL", "gpt-test-model")
     rubric_dir = write_rubric(tmp_path / "rubrics", "answer_quality", judge="llm_as_judge")
     case = make_case(expected={"rubric_id": "answer_quality"})
     fake = RecordingFake(good_payload(case.id, score=5))
@@ -133,7 +133,7 @@ def test_openai_backend_builds_a_plain_openai_client(monkeypatch):
 
     monkeypatch.delenv("LLM_JUDGE_PROVIDER", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-test-model")
+    monkeypatch.setenv("JUDGE_MODEL", "gpt-test-model")
     settings, client = judge_backend()
     assert settings.deployment == "gpt-test-model"
     assert isinstance(client, OpenAI) and not isinstance(client, AzureOpenAI)
@@ -192,3 +192,16 @@ async def test_abstains_on_a_malformed_judge_response_instead_of_crashing(tmp_pa
     s = await judge.grade(case, make_traj(say="Order 123 is on its way."))
     assert s.abstained is True
     assert s.passed is None
+
+
+def test_the_judge_never_inherits_the_agents_model(monkeypatch):
+    """AGENT_MODEL and JUDGE_MODEL are separate lines on purpose: a judge on
+    the agent's own model is grading its own answers."""
+    from evalkit.graders.llm_as_judge import judge_backend
+
+    monkeypatch.delenv("LLM_JUDGE_PROVIDER", raising=False)
+    monkeypatch.delenv("JUDGE_MODEL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("AGENT_MODEL", "openai:gpt-agent")
+    settings, _ = judge_backend()
+    assert settings.deployment != "gpt-agent"

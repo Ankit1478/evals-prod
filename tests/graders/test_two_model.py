@@ -147,8 +147,8 @@ class RecordingSDK:
 def openai_env(monkeypatch, judge_model="gpt-5.6-terra", model="gpt-5.6-luna"):
     monkeypatch.delenv("LLM_JUDGE_PROVIDER", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENAI_MODEL", model)
-    monkeypatch.setenv("OPENAI_JUDGE_MODEL", judge_model)
+    monkeypatch.setenv("JUDGE_MODEL", judge_model)
+    monkeypatch.setenv("JUDGE_MODEL_2", model)
 
 
 async def test_openai_multi_judge_calls_both_configured_models(tmp_path, monkeypatch):
@@ -166,7 +166,7 @@ async def test_openai_multi_judge_calls_both_configured_models(tmp_path, monkeyp
 
 
 def test_the_env_model_is_what_is_actually_sent(monkeypatch):
-    """OPENAI_JUDGE_MODEL is a real knob, not documentation - the request
+    """JUDGE_MODEL is a real knob, not documentation - the request
     carries it even though upstream pins the slot name."""
     from evalkit.graders.llm_as_judge import build_two_model_judge, judge_backend
 

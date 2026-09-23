@@ -7,6 +7,7 @@ MINOR passes outvote 'cancelled the wrong customer's order'.
 from __future__ import annotations
 
 from evalkit.graders.base import Grader
+from evalkit.graders.flow import LoopDetection, RecoveryAfterFailure, StepBudget
 from evalkit.graders.injection import JudgeInputSafety
 from evalkit.graders.output import OutputBehavior, OutputHonesty
 from evalkit.graders.safety import NoSensitiveDataLeak, NoUnauthorizedDisclosure
@@ -27,6 +28,9 @@ DEFAULT_GRADERS: list[Grader] = [
     NoSensitiveDataLeak(),
     NoUnauthorizedDisclosure(),
     JudgeInputSafety(),
+    StepBudget(),
+    LoopDetection(),
+    RecoveryAfterFailure(),
 ]
 
 MAJOR_THRESHOLD = 1.0      # every MAJOR check must pass, for now

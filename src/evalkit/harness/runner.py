@@ -8,7 +8,6 @@ run the agent again.
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +16,7 @@ from evalkit.adapters.base import Adapter
 from evalkit.env.memory import MemoryEnv
 from evalkit.schema.case import Case
 from evalkit.schema.trajectory import StopReason, Trajectory
+from evalkit.store import JsonlStore, Store
 
 
 def new_run_id() -> str:
@@ -71,11 +71,13 @@ async def run_one(adapter: Adapter, case: Case, run_id: str,
 async def run_suite(adapter: Adapter, cases: list[Case], runs_dir: Path,
                     trials: int = 1,
                     faults_by_case: dict[str, dict[str, str]] | None = None,
+                    store: Store | None = None,
                     ) -> tuple[str, list[Trajectory]]:
-    """Run every case `trials` times. Write everything to runs/<run_id>/."""
+    """Run every case `trials` times. Everything goes through the store -
+    runs/<run_id>/ unless another store is passed. The run is left OPEN:
+    the caller grades it, writes the results, then finishes it."""
+    store = store or JsonlStore(runs_dir)
     run_id = new_run_id()
-    out = runs_dir / run_id
-    (out / "trajectories").mkdir(parents=True, exist_ok=True)
 
     # The manifest is written BEFORE anything runs and never changed after.
     # It is what makes a run reproducible six months later.
@@ -88,7 +90,7 @@ async def run_suite(adapter: Adapter, cases: list[Case], runs_dir: Path,
         "trials_per_case": trials,
         "faults": faults_by_case or {},
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    store.start_run(manifest)
 
     trajectories: list[Trajectory] = []
     for case in cases:
@@ -96,7 +98,6 @@ async def run_suite(adapter: Adapter, cases: list[Case], runs_dir: Path,
             traj = await run_one(adapter, case, run_id, trial,
                                  faults=(faults_by_case or {}).get(case.id))
             trajectories.append(traj)
-            path = out / "trajectories" / f"{case.id}__trial{trial}.json"
-            path.write_text(traj.model_dump_json(indent=2))
+            store.write_trajectory(traj)
 
     return run_id, trajectories
