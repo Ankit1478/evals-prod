@@ -1,7 +1,8 @@
 name: eval gate
 
 # Runs on every PR and on main. `ef gate`'s exit code is what decides the
-# checkmark: 0 = pass, 2 = agent regressed, 3 = the eval itself is broken.
+# checkmark: 0 = pass, 2 = agent regressed, 3 = the eval itself is broken,
+# 4 = the judges disagreed on some cases and a human must decide them.
 # GitHub reads the job's exit status, so a non-zero `ef gate` fails the job,
 # which blocks the merge if this check is marked required in branch protection.
 on:

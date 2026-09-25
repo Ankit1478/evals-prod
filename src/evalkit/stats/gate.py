@@ -19,6 +19,7 @@ from evalkit.stats.summary import summarise_cases
 EXIT_PASS = 0
 EXIT_FAILED = 2      # the agent did not meet the bar
 EXIT_INVALID = 3     # the run itself is broken - never treat as a pass
+EXIT_NEEDS_REVIEW = 4  # a human must decide some cases before anyone can say
 
 INVALID_STOPS = {"error", "timeout"}
 
@@ -119,6 +120,21 @@ def run_gate(results: list[CaseResult], kinds: dict[str, str],
         return Verdict(passed=False, exit_code=EXIT_FAILED, stages=stages)
     stages.append(StageResult(stage="1 CRITICAL", passed=True,
                               detail="no critical failures"))
+
+    # ---- stage 1b: HUMAN REVIEW --------------------------------------------
+    # Before the threshold, because the threshold would count these cases as
+    # passes: their verdict is not known yet, so no pass rate is either.
+    pending = [r.case_id for r in results if r.needs_review]
+    max_pending = thresholds.get("needs_review_allowed", 0)
+    if len(pending) > max_pending:
+        stages.append(StageResult(
+            stage="1b REVIEW", passed=False,
+            detail=f"{len(pending)} case(s) need a human verdict - the judges "
+                   f"disagreed: {', '.join(pending[:4])}"))
+        return Verdict(passed=False, exit_code=EXIT_NEEDS_REVIEW, stages=stages)
+    stages.append(StageResult(stage="1b REVIEW", passed=True,
+                              detail=f"{len(pending)} case(s) awaiting human review "
+                                     f"(allowed {max_pending})"))
 
     # ---- stage 2: THRESHOLD ------------------------------------------------
     # Each kind of case has its own bar.

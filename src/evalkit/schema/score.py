@@ -36,3 +36,22 @@ class CaseResult(Frozen):
     scores: list[Score]
     passed: bool
     stop_reason: str
+
+    @property
+    def review_reasons(self) -> list[str]:
+        """Graders that stepped aside because a HUMAN must decide.
+
+        An ordinary abstain ("this check does not apply") is not one of
+        these. A judge panel that disagreed is: it abstains so the models'
+        split is not averaged into false confidence - and decide() skips
+        abstains, so without this the case would quietly count as a pass.
+        Once a human verdict is recorded (evalkit.review), nothing is pending.
+        """
+        if any(s.grader == "human.review" and not s.abstained for s in self.scores):
+            return []
+        return [f"{s.grader}: {s.explanation}" for s in self.scores
+                if s.abstained and s.evidence.get("requires_human_review") is True]
+
+    @property
+    def needs_review(self) -> bool:
+        return bool(self.review_reasons)

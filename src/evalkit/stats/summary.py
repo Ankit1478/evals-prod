@@ -13,6 +13,7 @@ class CaseSummary(Frozen):
     kind: str
     trials: int
     passed: int
+    pending: int = 0        # trials awaiting a human verdict - not passes
     pass_at_1: float
     pass_hat_k: float       # 1.0 only if EVERY trial passed
     flaky: bool             # passed sometimes, failed sometimes
@@ -26,6 +27,7 @@ class SuiteSummary(Frozen):
     ci_low: float
     ci_high: float
     flaky_cases: list[str]
+    pending_cases: list[str] = []
 
 
 def summarise_cases(results: list[CaseResult],
@@ -37,15 +39,21 @@ def summarise_cases(results: list[CaseResult],
     out: list[CaseSummary] = []
     for cid, trials in by_case.items():
         n = len(trials)
-        c = sum(1 for t in trials if t.passed)
+        # A trial awaiting human review is not a pass: its verdict is not
+        # known yet. Counting it as one would report a pass rate nobody
+        # has actually established.
+        waiting = sum(1 for t in trials if t.needs_review)
+        c = sum(1 for t in trials if t.passed and not t.needs_review)
+        failed = n - c - waiting
         out.append(CaseSummary(
             case_id=cid,
             kind=kinds.get(cid, "regression"),
             trials=n,
             passed=c,
+            pending=waiting,
             pass_at_1=pass_at_k(n, c, 1),
             pass_hat_k=pass_hat_k(c, n),
-            flaky=0 < c < n,          # the dangerous middle
+            flaky=c > 0 and failed > 0,   # the dangerous middle
         ))
     return out
 
@@ -65,5 +73,6 @@ def summarise_suite(cases: list[CaseSummary]) -> list[SuiteSummary]:
             pass_hat_k=reliable / n,
             ci_low=lo, ci_high=hi,
             flaky_cases=[c.case_id for c in group if c.flaky],
+            pending_cases=[c.case_id for c in group if c.pending],
         ))
     return out

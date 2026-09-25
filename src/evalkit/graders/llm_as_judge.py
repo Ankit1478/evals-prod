@@ -74,6 +74,30 @@ def judge_backend() -> tuple[Any, Any | None]:
                             max_retries=settings.max_retries)
 
 
+def judge_models() -> list[str]:
+    """Every model LLM_AS_JUDGE may call, as configured in .env."""
+    from llm_judge.multi_judge import JudgeModel
+
+    if os.environ.get("LLM_JUDGE_PROVIDER", "openai").lower() == "azure":
+        return [os.environ.get("AZURE_OPENAI_DEPLOYMENT") or JudgeModel.TERRA.value,
+                JudgeModel.LUNA.value]
+    return [os.environ.get("JUDGE_MODEL") or "gpt-5.6-terra",
+            os.environ.get("JUDGE_MODEL_2") or JudgeModel.LUNA.value]
+
+
+def self_judging(agent_model: str | None) -> list[str]:
+    """The judge models that are also the agent's model - normally none.
+
+    `agent_model` is a provider spec (openai:gpt-5.6-luna) or a bare name.
+    A judge on the agent's own model grades its own answers and favours
+    them, so any match here makes the judge's verdict untrustworthy.
+    """
+    if not agent_model:
+        return []
+    name = agent_model.partition(":")[2] or agent_model
+    return [m for m in judge_models() if m == name]
+
+
 def build_two_model_judge(settings: Any, sdk_client: Any | None) -> Any:
     """Two independent judges on whichever backend judge_backend() chose.
 
@@ -257,25 +281,31 @@ class LLMAsJudge:
                                  "two-model judge call failed - abstaining, "
                                  "not guessing")
 
+        # Upstream reports its slot names (terra/luna); on OpenAI the slots
+        # carry whatever .env configured, so show the model actually called.
+        from llm_judge.multi_judge import JudgeModel
+        actual = ({} if sdk_client is None else
+                  {JudgeModel.TERRA: judge_models()[0], JudgeModel.LUNA: judge_models()[1]})
         ev = {"rubric_id": case.expected.rubric_id,
               "judges": 2,
               "agreement": result.agreement,
               "requires_human_review": result.requires_human_review,
-              "per_model": {j.model.value: (j.result.decision.value
+              "per_model": {actual.get(j.model, j.model.value): (j.result.decision.value
                                             if hasattr(j.result, "decision") else None)
                             for j in result.judgments},
               "average_weighted_score": result.average_weighted_score,
               "injection_findings": injection,
               "reply": answer}
 
+        names = " and ".join(ev["per_model"])
         if result.requires_human_review:
             # Two judges disagreeing is not a score. Averaging it would
             # manufacture confidence that neither model actually has.
-            return self._abstain(ev, "terra and luna disagreed - routing to "
-                                     "human review instead of averaging")
+            return self._abstain(ev, f"{names} disagreed - routing to "
+                                     f"human review instead of averaging")
 
         weighted = float(result.average_weighted_score or 0.0)
         passed = str(result.aggregate_decision).upper().endswith("PASS")
         return score(self, _normalise(weighted), passed, ev,
                     f"answer quality {weighted:.2f}/5 "
-                    f"(terra and luna agreed)")
+                    f"({names} agreed)")

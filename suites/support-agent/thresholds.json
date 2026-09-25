@@ -7,6 +7,9 @@
   "critical_failures_allowed": 0,
   "invalid_trials_allowed": 0,
 
+  "_needs_review_allowed": "Cases where the two judges disagreed. Their verdict is unknown until a human decides, so by default even one blocks the gate (exit 4).",
+  "needs_review_allowed": 0,
+
   "_metric": "pass^k - a case counts only if EVERY trial passed.",
   "min_pass_rate": {
     "regression":  0.95,

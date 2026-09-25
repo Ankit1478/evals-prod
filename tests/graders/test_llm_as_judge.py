@@ -205,3 +205,37 @@ def test_the_judge_never_inherits_the_agents_model(monkeypatch):
     monkeypatch.setenv("AGENT_MODEL", "openai:gpt-agent")
     settings, _ = judge_backend()
     assert settings.deployment != "gpt-agent"
+
+
+def test_self_judging_is_caught_for_either_judge(monkeypatch):
+    from evalkit.graders.llm_as_judge import self_judging
+
+    monkeypatch.delenv("LLM_JUDGE_PROVIDER", raising=False)
+    monkeypatch.setenv("JUDGE_MODEL", "gpt-judge-a")
+    monkeypatch.setenv("JUDGE_MODEL_2", "gpt-judge-b")
+    assert self_judging("openai:gpt-judge-b") == ["gpt-judge-b"]
+    assert self_judging("gpt-judge-a") == ["gpt-judge-a"]        # bare name too
+    assert self_judging("openai:gpt-agent") == []
+    assert self_judging("bedrock:anthropic.claude-opus-5") == []
+    assert self_judging(None) == []
+
+
+def test_run_refuses_when_the_judge_is_the_agents_model(monkeypatch, tmp_path):
+    """Fail before paying for the run, with the INVALID exit code."""
+    import shutil
+
+    from typer.testing import CliRunner
+
+    from evalkit.cli import app
+
+    suite = tmp_path / "suite"
+    shutil.copytree(Path("suites/support-agent"), suite)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LLM_JUDGE_PROVIDER", raising=False)
+    monkeypatch.setenv("JUDGE_MODEL", "gpt-judge-a")
+    monkeypatch.setenv("JUDGE_MODEL_2", "gpt-same")
+    out = CliRunner().invoke(app, ["run", str(suite), "--adapter", "inprocess",
+                                   "--model", "openai:gpt-same"])
+    assert out.exit_code == 3
+    assert "same model" in out.output
+    assert not (tmp_path / "runs").exists()          # nothing was run

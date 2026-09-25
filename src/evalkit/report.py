@@ -22,6 +22,7 @@ th, td { text-align: left; padding: 0.4rem 0.7rem; border-bottom: 1px solid #eee
 th { color: #666; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
 .pass { color: #1a7f37; font-weight: 600; }
 .fail { color: #cf222e; font-weight: 600; }
+.review { color: #9a6700; font-weight: 600; }
 .why { color: #666; font-size: 0.9rem; }
 .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px;
         font-size: 0.8rem; font-weight: 600; }
@@ -33,8 +34,13 @@ th { color: #666; font-weight: 600; font-size: 0.85rem; text-transform: uppercas
 def _case_rows(results: list[CaseResult]) -> str:
     rows = []
     for r in results:
-        mark = '<span class="pass">PASS</span>' if r.passed else '<span class="fail">FAIL</span>'
-        why = "; ".join(html.escape(s.explanation) for s in r.scores if s.passed is False)
+        if r.passed and r.needs_review:
+            mark = '<span class="review">REVIEW</span>'
+            why = "; ".join(html.escape(x) for x in r.review_reasons)
+        else:
+            mark = ('<span class="pass">PASS</span>' if r.passed
+                    else '<span class="fail">FAIL</span>')
+            why = "; ".join(html.escape(s.explanation) for s in r.scores if s.passed is False)
         rows.append(f"<tr><td>{mark}</td><td>{html.escape(r.case_id)}</td>"
                     f"<td>trial {r.trial_index}</td>"
                     f'<td class="why">{why or "-"}</td></tr>')
@@ -46,12 +52,14 @@ def _suite_rows(per_suite: list[SuiteSummary]) -> str:
     for s in per_suite:
         badge = "ok" if s.pass_hat_k == 1.0 else "bad"
         flaky = ", ".join(s.flaky_cases) or "-"
+        review = ", ".join(s.pending_cases) or "-"
         rows.append(
             f"<tr><td>{html.escape(s.kind)}</td><td>{s.cases}</td>"
             f"<td>{s.pass_at_1:.0%}</td>"
             f'<td><span class="badge {badge}">{s.pass_hat_k:.0%}</span></td>'
             f"<td>{s.ci_low:.0%} - {s.ci_high:.0%}</td>"
-            f"<td>{html.escape(flaky)}</td></tr>")
+            f"<td>{html.escape(flaky)}</td>"
+            f'<td class="review">{html.escape(review)}</td></tr>')
     return "\n".join(rows)
 
 
@@ -67,7 +75,7 @@ def write_html_report(run_dir: Path, run_id: str, results: list[CaseResult],
 
 <h2>reliability</h2>
 <table>
-<tr><th>kind</th><th>cases</th><th>pass@1</th><th>pass^k</th><th>95% CI</th><th>flaky</th></tr>
+<tr><th>kind</th><th>cases</th><th>pass@1</th><th>pass^k</th><th>95% CI</th><th>flaky</th><th>review</th></tr>
 {_suite_rows(per_suite)}
 </table>
 

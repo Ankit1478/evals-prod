@@ -17,8 +17,10 @@ from evalkit.adapters.echo import EchoAdapter
 from evalkit.adapters.inprocess import InProcessAdapter
 from evalkit.graders.composite import grade_all
 from evalkit.graders.judge import JevJudge, augment_with_judge
-from evalkit.graders.llm_as_judge import LLMAsJudge
+from evalkit.graders.llm_as_judge import LLMAsJudge, self_judging
 from evalkit.report import write_html_report
+from evalkit.review import (REVIEWS_FILE, append_review, apply_reviews, disputed,
+                            load_reviews, new_review)
 from evalkit.stats.compare import diff_suites
 from evalkit.stats.gate import load_results, run_gate
 from evalkit.stats.summary import summarise_cases, summarise_suite
@@ -68,6 +70,16 @@ def run(
     if adapter_name == "echo":
         adapter = EchoAdapter(suite_dir / "echo_script.json")
     elif adapter_name == "inprocess":
+        # Checked before the run, not after: a judge on the agent's own
+        # model grades its own answers, and the whole run would be paid
+        # for only to produce scores nobody can trust.
+        clash = self_judging(model) if any(c.expected.rubric_id for c in cases) else []
+        if clash:
+            console.print(f"[red]INVALID[/red]: the agent ({model}) and the judge "
+                          f"({', '.join(clash)}) are the same model - it would grade "
+                          f"its own answers. Change JUDGE_MODEL / JUDGE_MODEL_2 or "
+                          f"AGENT_MODEL in .env.")
+            raise typer.Exit(3)
         adapter = InProcessAdapter(target, model=model, user_model=user_model)
     else:
         raise typer.BadParameter(f"unknown adapter: {adapter_name}")
@@ -111,13 +123,21 @@ def run(
     for r in results:
         store.write_result(r, kind=by_id[r.case_id].kind)
 
+    # The stored results stay the machines' verdicts. Human reviews are
+    # applied on read, here and in `ef gate`, so a review written after
+    # the run (the usual order) still counts.
+    results = apply_reviews(results, load_reviews(suite_dir / REVIEWS_FILE))
+
     table = Table(title=f"run {run_id}", header_style="bold")
-    table.add_column("", justify="center", width=4, no_wrap=True)
+    table.add_column("", justify="center", width=6, no_wrap=True)
     table.add_column("case")
     table.add_column("why it failed", max_width=62, overflow="fold")
 
     for r in results:
-        if r.passed:
+        if r.passed and r.needs_review:
+            table.add_row("[yellow]REVIEW[/yellow]", f"[yellow]{r.case_id}[/yellow]",
+                          "\n".join(r.review_reasons))
+        elif r.passed:
             table.add_row("[green]PASS[/green]", r.case_id, "[dim]-[/dim]")
         else:
             why = "\n".join(
@@ -139,6 +159,7 @@ def run(
     stats.add_column(f"pass^{trials}", justify="right")
     stats.add_column("95% CI", justify="center")
     stats.add_column("flaky")
+    stats.add_column("review")
 
     for s_ in per_suite:
         colour = "green" if s_.pass_hat_k == 1.0 else "red"
@@ -148,6 +169,8 @@ def run(
             f"[{colour}]{s_.pass_hat_k:.0%}[/{colour}]",
             f"{s_.ci_low:.0%} - {s_.ci_high:.0%}",
             ", ".join(s_.flaky_cases) or "[dim]none[/dim]",
+            f"[yellow]{', '.join(s_.pending_cases)}[/yellow]" if s_.pending_cases
+            else "[dim]none[/dim]",
         )
     console.print()
     console.print(stats)
@@ -161,8 +184,11 @@ def run(
                       "dangerous result there is[/dim]")
 
     reliable = sum(1 for c in per_case if c.pass_hat_k == 1.0)
+    waiting = sum(1 for c in per_case if c.pending)
     console.print(f"\n[bold]{reliable}/{len(per_case)} cases passed every "
-                  f"trial[/bold]  [dim](pass^{trials})[/dim]")
+                  f"trial[/bold]  [dim](pass^{trials})[/dim]"
+                  + (f"  [yellow]{waiting} awaiting human review "
+                     f"(ef review)[/yellow]" if waiting else ""))
     console.print(f"[dim]recordings: runs/{run_id}/trajectories/[/dim]")
 
     manifest = json.loads((run_dir / "manifest.json").read_text())
@@ -170,7 +196,7 @@ def run(
         run_id=run_id, suite=manifest["suite"], started_at=manifest["started_at"],
         finished_at=datetime.now(timezone.utc).isoformat(),
         cases=len(cases), trials=trials, results=len(results),
-        passed=sum(1 for r in results if r.passed)))
+        passed=sum(1 for r in results if r.passed and not r.needs_review)))
 
     report_path = write_html_report(run_dir, run_id, results, per_suite)
     console.print(f"[dim]report: {report_path}[/dim]")
@@ -266,7 +292,7 @@ def gate(
     run: str | None = typer.Option(None, help="run id (default: the latest run)"),
     suite: str = typer.Option("suites/support-agent", help="suite holding thresholds.json"),
 ):
-    """Decide: ship or do not ship. Exits 0 (pass), 2 (failed), 3 (invalid).
+    """Decide: ship or do not ship. Exits 0 (pass), 2 (failed), 3 (invalid), 4 (needs human review).
 
     CI reads the exit code. A crashed eval must exit 3 - never 0.
     """
@@ -274,6 +300,7 @@ def gate(
     suite_dir = Path(suite)
     thresholds = json.loads((suite_dir / "thresholds.json").read_text())
     results, kinds = load_results(run_dir)
+    results = apply_reviews(results, load_reviews(suite_dir / REVIEWS_FILE))
     verdict = run_gate(results, kinds, thresholds, suite_dir=suite_dir)
 
     console.print(f"\n[bold]gate[/bold]  [dim]{run_dir.name}[/dim]\n")
@@ -284,11 +311,67 @@ def gate(
     if verdict.passed:
         console.print("\n[bold green]SHIP IT[/bold green]  [dim]exit 0[/dim]\n")
     else:
-        word = "INVALID RUN" if verdict.exit_code == 3 else "BLOCKED"
+        word = {3: "INVALID RUN", 4: "NEEDS HUMAN REVIEW"}.get(verdict.exit_code,
+                                                               "BLOCKED")
         console.print(f"\n[bold red]{word}[/bold red]  "
                       f"[dim]stopped at {verdict.blocked_by} · "
                       f"exit {verdict.exit_code}[/dim]\n")
     raise typer.Exit(verdict.exit_code)
+
+
+@app.command()
+def review(
+    case_id: str | None = typer.Argument(None, help="the case to decide (omit to list)"),
+    decision: str | None = typer.Option(None, "--decision", help="pass or fail"),
+    reviewer: str | None = typer.Option(None, help="your name (default: git user.name)"),
+    note: str = typer.Option("", help="why - read by whoever reviews after you"),
+    run: str | None = typer.Option(None, help="run id (default: the latest run)"),
+    suite: str = typer.Option("suites/support-agent", help="suite holding reviews.jsonl"),
+):
+    """Decide the cases the judges disagreed on.
+
+    ef review                                   list what is waiting on you
+    ef review <case> --decision fail --note ... record your verdict
+
+    Read the case first (`ef trace <case>`). Your verdict goes to the suite's
+    reviews.jsonl - commit it; it is the record of who decided what.
+    """
+    import subprocess
+
+    run_dir = Path("runs") / run if run else _latest_run(Path("runs"))
+    path = Path(suite) / REVIEWS_FILE
+    results, _ = load_results(run_dir)
+    results = apply_reviews(results, load_reviews(path))
+    pending = {r.case_id: r for r in results if r.needs_review}
+
+    if case_id is None:
+        console.print(f"\n[bold]{len(pending)}[/bold] case(s) waiting on a human  "
+                      f"[dim]run {run_dir.name}[/dim]\n")
+        for r in pending.values():
+            ev = disputed(r).evidence
+            console.print(f"[yellow]{r.case_id}[/yellow]  judges: {ev.get('per_model')}")
+            console.print(f"  reply: {ev.get('reply')}\n")
+        if pending:
+            console.print("[dim]read one: ef trace <case>  ·  decide: "
+                          "ef review <case> --decision pass|fail --note \"why\"[/dim]\n")
+        return
+
+    if case_id not in pending:
+        console.print(f"[red]{case_id} is not waiting on a review in run "
+                      f"{run_dir.name}[/red]")
+        raise typer.Exit(1)
+    if (decision or "").lower() not in {"pass", "fail"}:
+        raise typer.BadParameter("--decision must be pass or fail")
+    if not reviewer:
+        reviewer = subprocess.run(["git", "config", "user.name"], capture_output=True,
+                                  text=True).stdout.strip()
+    if not reviewer:
+        raise typer.BadParameter("--reviewer is required (no git user.name set)")
+
+    rv = new_review(pending[case_id], decision, reviewer, note)
+    append_review(path, rv)
+    console.print(f"[green]recorded[/green]  {case_id}: {rv.human_decision} "
+                  f"by {rv.reviewer}  [dim]-> {path}[/dim]")
 
 
 @app.command()

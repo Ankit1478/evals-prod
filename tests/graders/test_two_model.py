@@ -165,6 +165,19 @@ async def test_openai_multi_judge_calls_both_configured_models(tmp_path, monkeyp
     assert s.evidence["agreement"] is True
 
 
+async def test_evidence_names_the_models_actually_called(tmp_path, monkeypatch):
+    """Not upstream's slot names - the report must say gpt-4.1 if gpt-4.1 judged."""
+    from evalkit.graders.llm_as_judge import build_two_model_judge, judge_backend
+
+    openai_env(monkeypatch, judge_model="gpt-judge-a", model="gpt-judge-b")
+    settings, _ = judge_backend()
+    judge = LLMAsJudge(rubric_dir=two_model_rubric(tmp_path),
+                       two_model_judge=build_two_model_judge(settings, RecordingSDK()))
+    case = make_case(expected={"rubric_id": "answer_quality"})
+    s = await judge.grade(case, make_traj(say="Order 123 is active."))
+    assert sorted(s.evidence["per_model"]) == ["gpt-judge-a", "gpt-judge-b"]
+
+
 def test_the_env_model_is_what_is_actually_sent(monkeypatch):
     """JUDGE_MODEL is a real knob, not documentation - the request
     carries it even though upstream pins the slot name."""

@@ -99,3 +99,63 @@ def test_a_missing_approval_file_blocks_when_required(tmp_path):
     v = run_gate([result("c0")], kinds("c0"), th, suite_dir=tmp_path)
     assert v.exit_code == EXIT_INVALID
     assert "no rubric approval file" in v.stages[-1].detail
+
+
+# --- human review -------------------------------------------------------------
+
+def review_result(case_id):
+    """A case whose judge panel disagreed: the judge abstained, so decide()
+    counted the case as passed - the gate must not."""
+    scores = [Score(grader="g", grader_version="1", value=1.0, passed=True,
+                    severity=Severity.MAJOR),
+              Score(grader="judge.answer_quality", grader_version="1", value=0.0,
+                    passed=None, severity=Severity.MAJOR, abstained=True,
+                    evidence={"requires_human_review": True},
+                    explanation="terra and luna disagreed")]
+    return CaseResult(case_id=case_id, trial_index=0, scores=scores,
+                      passed=True, stop_reason="completed")
+
+
+def test_a_case_awaiting_human_review_blocks_the_gate():
+    from evalkit.stats.gate import EXIT_NEEDS_REVIEW
+
+    rs = [result(f"c{i}") for i in range(9)] + [review_result("split")]
+    v = run_gate(rs, kinds(*[r.case_id for r in rs]), THRESHOLDS)
+    assert v.passed is False
+    assert v.exit_code == EXIT_NEEDS_REVIEW
+    assert v.blocked_by == "1b REVIEW"
+    assert "split" in v.stages[-1].detail
+
+
+def test_an_ordinary_abstain_is_not_a_review():
+    """'This check does not apply' must not send a case to a human."""
+    plain = CaseResult(case_id="c", trial_index=0, stop_reason="completed", passed=True,
+                       scores=[Score(grader="g", grader_version="1", value=0.0,
+                                     passed=None, severity=Severity.MAJOR,
+                                     abstained=True, explanation="no rubric")])
+    assert plain.needs_review is False
+    assert run_gate([plain], kinds("c"), THRESHOLDS).exit_code == EXIT_PASS
+
+
+def test_review_cases_can_be_allowed_explicitly():
+    t = {**THRESHOLDS, "needs_review_allowed": 1,
+         "min_pass_rate": {"regression": 0.9}}
+    rs = [result(f"c{i}") for i in range(9)] + [review_result("split")]
+    assert run_gate(rs, kinds(*[r.case_id for r in rs]), t).exit_code == EXIT_PASS
+
+
+def test_an_allowed_review_case_still_does_not_count_as_a_pass():
+    """Allowing it means 'do not block on it' - not 'assume it passed'.
+    9 known passes out of 10 is 90%, below a 95% bar."""
+    t = {**THRESHOLDS, "needs_review_allowed": 1}
+    rs = [result(f"c{i}") for i in range(9)] + [review_result("split")]
+    v = run_gate(rs, kinds(*[r.case_id for r in rs]), t)
+    assert v.exit_code == EXIT_FAILED
+    assert v.blocked_by == "2 THRESHOLD"
+
+
+def test_critical_failure_still_outranks_review():
+    rs = [review_result("split"), result("bad", passed=False, critical_failed=True)]
+    v = run_gate(rs, kinds("split", "bad"), THRESHOLDS)
+    assert v.exit_code == EXIT_FAILED
+    assert v.blocked_by == "1 CRITICAL"

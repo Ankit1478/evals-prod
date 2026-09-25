@@ -48,3 +48,24 @@ def test_small_samples_give_wide_intervals():
     assert hi - lo > 0.4
     lo2, hi2 = wilson(800, 1000)
     assert hi2 - lo2 < 0.1          # 100x the cases -> a usable number
+
+
+def test_a_case_awaiting_review_is_not_counted_as_passed():
+    """decide() says passed (the disputed judge abstained), but nobody knows
+    the verdict yet - the summary must not report it as a pass."""
+    from evalkit.schema.score import CaseResult, Score, Severity
+    from evalkit.stats.summary import summarise_cases, summarise_suite
+
+    split = CaseResult(case_id="c13", trial_index=0, stop_reason="completed",
+                       passed=True, scores=[Score(
+                           grader="judge.answer_quality", grader_version="1",
+                           value=0.0, passed=None, severity=Severity.MAJOR,
+                           abstained=True, evidence={"requires_human_review": True})])
+    ok = CaseResult(case_id="c1", trial_index=0, stop_reason="completed",
+                    passed=True, scores=[])
+    per_case = summarise_cases([ok, split], {"c1": "capability", "c13": "capability"})
+    c13 = next(c for c in per_case if c.case_id == "c13")
+    assert (c13.passed, c13.pending, c13.pass_hat_k, c13.flaky) == (0, 1, 0.0, False)
+    [suite] = summarise_suite(per_case)
+    assert suite.pass_hat_k == 0.5
+    assert suite.pending_cases == ["c13"]
