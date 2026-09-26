@@ -112,3 +112,11 @@ def test_a_corrupt_reviews_file_is_an_error_not_silence(tmp_path):
 def test_reply_hash_is_stable():
     assert reply_hash("x") == reply_hash(" x ")
     assert reply_hash("x") != reply_hash("y")
+
+
+def test_a_case_that_already_failed_is_not_sent_for_review():
+    """A human PASS could not rescue it, so asking would waste their time."""
+    r = split_case()
+    failed = r.model_copy(update={"passed": False})
+    assert failed.needs_review is False
+    assert run_gate([failed], {"c13": "regression"}, THRESHOLDS).blocked_by != "1b REVIEW"

@@ -17,7 +17,7 @@ from evalkit.adapters.echo import EchoAdapter
 from evalkit.adapters.inprocess import InProcessAdapter
 from evalkit.graders.composite import grade_all
 from evalkit.graders.judge import JevJudge, augment_with_judge
-from evalkit.graders.llm_as_judge import LLMAsJudge, self_judging
+from evalkit.graders.llm_as_judge import LLMAsJudge, judge_spec, self_judging
 from evalkit.report import write_html_report
 from evalkit.review import (REVIEWS_FILE, append_review, apply_reviews, disputed,
                             load_reviews, new_review)
@@ -43,10 +43,14 @@ def run(
     suite: str = typer.Argument(..., help="path to a suite, e.g. suites/support-agent"),
     dataset: str = typer.Option("regression", help="which cases file to run"),
     trials: int = typer.Option(1, help="how many times to run each case"),
-    adapter_name: str = typer.Option("echo", "--adapter",
-                                     help="echo (scripted fake) or inprocess (real agent)"),
-    target: str = typer.Option("agent.support_agent:run_agent", "--target",
-                               help="module:function, for --adapter inprocess"),
+    adapter_name: str | None = typer.Option(None, "--adapter",
+                                            help="echo (scripted fake) or inprocess (real "
+                                                 "agent). Default: EVAL_ADAPTER in .env, "
+                                                 "else echo"),
+    target: str | None = typer.Option(None, "--target",
+                                      help="module:function, for --adapter inprocess. "
+                                           "Default: AGENT_TARGET in .env, else "
+                                           "agent.support_agent:run_agent"),
     model: str | None = typer.Option(None, "--model",
                                      help="the agent's model (default: AGENT_MODEL in .env), "
                                           "e.g. openai:gpt-4o-mini, anthropic:claude-opus-5, "
@@ -62,6 +66,8 @@ def run(
     load_dotenv()                       # picks up keys and model choices from .env
     # A flag wins; otherwise .env decides. Either way the manifest records
     # the model actually used, so a run stays reproducible.
+    adapter_name = adapter_name or os.environ.get("EVAL_ADAPTER") or "echo"
+    target = target or os.environ.get("AGENT_TARGET") or "agent.support_agent:run_agent"
     model = model or os.environ.get("AGENT_MODEL")
     user_model = user_model or os.environ.get("USER_MODEL")
     suite_dir = Path(suite)
@@ -85,7 +91,17 @@ def run(
         raise typer.BadParameter(f"unknown adapter: {adapter_name}")
 
     console.print(f"[bold]{len(cases)}[/bold] cases  x  [bold]{trials}[/bold] trial(s)"
-                  f"  ->  adapter [cyan]{adapter.name}[/cyan]\n")
+                  f"  ->  adapter [cyan]{adapter.name}[/cyan]")
+    # Which model plays which role, so a run never leaves you guessing.
+    agent_line = (f"{model}  [dim]({target})[/dim]" if adapter_name == "inprocess"
+                  else "[dim]scripted replies, no model[/dim]")
+    console.print(f"[dim]agent:[/dim]  {agent_line}")
+    if adapter_name == "inprocess" and user_model:
+        console.print(f"[dim]user:[/dim]   {user_model}")
+    if any(c.expected.rubric_id for c in cases):
+        console.print(f"[dim]judges:[/dim] {judge_spec(0)}, {judge_spec(1)}, "
+                      f"jev ({os.environ.get('JEV_MODEL') or 'jev-latest'})")
+    console.print()
 
     faults_path = suite_dir / "faults.json"
     faults = json.loads(faults_path.read_text()) if faults_path.exists() else {}

@@ -10,11 +10,7 @@ scores change - which is exactly what the harness is for.
 
 from __future__ import annotations
 
-import json
-import os
 from typing import Any, Awaitable, Callable
-
-from openai import AsyncOpenAI, BadRequestError
 
 SYSTEM_PROMPT = """You are a customer support agent for an online store.
 
@@ -33,90 +29,37 @@ POLICY - follow it exactly:
 
 ToolCaller = Callable[[str, dict], Awaitable[Any]]
 
-# Different models accept different knobs. Reasoning models reject
-# `temperature`; some reject tool use unless `reasoning_effort` is "none".
-# Rather than hardcode one model's rules, ask, and drop whatever it refuses.
-_OPTIONAL = {"reasoning_effort": "none", "temperature": 0}
 
-
-async def _create(client: AsyncOpenAI, **kwargs):
-    extras = dict(_OPTIONAL)
-    for _ in range(len(_OPTIONAL) + 1):
-        try:
-            return await client.chat.completions.create(**kwargs, **extras)
-        except BadRequestError as e:
-            bad = next((k for k in extras if k in str(e)), None)
-            if bad is None:
-                raise
-            extras.pop(bad)          # this model does not take it; try again
-    raise RuntimeError("could not find a parameter set this model accepts")
-
-
-def _openai_model(spec: str | None) -> str:
-    """AGENT_MODEL / --model spec -> the bare OpenAI model name.
-
-    This agent is written against the OpenAI SDK, so it runs on OpenAI only.
-    For Claude, Bedrock or Foundry use agent.tool_agent, which is built on
-    the provider layer.
-    """
-    spec = spec or os.environ.get("AGENT_MODEL") or "openai:gpt-4o-mini"
-    platform, sep, name = spec.partition(":")
-    if not sep:
-        return spec                          # bare "gpt-4o-mini"
-    if platform != "openai":
-        raise ValueError(f"support_agent runs on OpenAI only, got {spec!r} - "
-                         f"use --target agent.tool_agent:run_agent for {platform}")
-    return name or "gpt-4o-mini"
-
-
-def _to_openai_tools(specs: list) -> list[dict]:
-    return [{"type": "function",
-             "function": {"name": s.name, "description": s.description,
-                          "parameters": s.input_schema}}
-            for s in specs]
-
-
-async def run_agent(messages: list[dict], tool_specs: list,
-                    call_tool: ToolCaller, context: dict | None = None,
-                    max_steps: int = 10, model: str | None = None) -> str:
-    """Run the agent loop. Returns the final message to the customer.
+def build_system(context: dict | None) -> str:
+    """The policy, plus who is signed in.
 
     `context` is who the caller is - in production this comes from the logged
     in session, so the eval must supply it too. Without it the agent has to
     ask "who are you?" on every single turn, which is not the system we ship.
-
-    `call_tool` is supplied by the harness - the agent does not know or care
-    whether it is talking to a fake database or a real one.
     """
-    client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    model = _openai_model(model)
-
     system = SYSTEM_PROMPT
     caller = (context or {}).get("customer_id")
     if caller:
         system += (f"\n\nThe person you are speaking with is signed in as "
                    f"customer_id \"{caller}\". Use that id when you call "
                    f"verify_customer. Never ask them to type it.")
+    return system
 
-    convo: list[dict] = [{"role": "system", "content": system}, *messages]
-    tools = _to_openai_tools(tool_specs)
 
-    for _ in range(max_steps):
-        resp = await _create(client, model=model, messages=convo, tools=tools)
-        msg = resp.choices[0].message
-        convo.append(msg.model_dump(exclude_none=True))
+async def run_agent(messages: list[dict], tool_specs: list,
+                    call_tool: ToolCaller, context: dict | None = None,
+                    max_steps: int = 10, model: str | None = None) -> dict:
+    """Run the agent. Returns the final message and the whole conversation.
 
-        if not msg.tool_calls:
-            return msg.content or ""
+    The model is any provider spec - openai:, anthropic:, bedrock:, foundry:
+    or azure: - taken from --model, else AGENT_MODEL in .env. The policy
+    above is this agent; the loop is the shared one in tool_agent.
 
-        for tc in msg.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            # The harness intercepts here: it runs the tool AND records it.
-            result = await call_tool(tc.function.name, args)
-            convo.append({"role": "tool", "tool_call_id": tc.id,
-                          "content": json.dumps(result, default=str)})
+    `call_tool` is supplied by the harness - the agent does not know or care
+    whether it is talking to a fake database or a real one.
+    """
+    from agent.tool_agent import run_agent as tool_loop
 
-    return "I wasn't able to complete that within the allowed number of steps."
+    return await tool_loop(messages, tool_specs, call_tool,
+                           context={"system_prompt": build_system(context)},
+                           max_steps=max_steps, model=model)

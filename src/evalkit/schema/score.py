@@ -54,4 +54,6 @@ class CaseResult(Frozen):
 
     @property
     def needs_review(self) -> bool:
-        return bool(self.review_reasons)
+        """Only a case that would otherwise pass waits on a human. One that
+        already failed another check fails whatever the human decides."""
+        return self.passed and bool(self.review_reasons)

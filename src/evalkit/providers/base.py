@@ -79,6 +79,10 @@ class Provider(Protocol):
         """Goes into the run manifest. Never includes a credential."""
         ...
 
+    async def aclose(self) -> None:
+        """Release the HTTP client. Safe to call more than once."""
+        ...
+
 
 def clean_schema(schema: dict) -> dict:
     """Drop keys some vendors reject on a tool's input schema.

@@ -154,6 +154,14 @@ class OpenAIProvider:
             resp = await self._client.chat.completions.create(**kwargs)
         return parse_response(resp, self.name)
 
+    async def aclose(self) -> None:
+        """Close the HTTP client inside the event loop that opened it.
+        Left to the garbage collector, it closes after asyncio.run() has shut
+        the loop and prints 'Event loop is closed' tracebacks."""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+
     def describe(self) -> dict:
         return {"provider": self.name, "model": self.model,
                 "reasoning_effort": self._reasoning_effort or "default"}

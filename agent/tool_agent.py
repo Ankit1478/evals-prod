@@ -53,6 +53,15 @@ async def run_agent(messages: list[dict], tool_specs: list, call_tool: ToolCalle
     next turn of a multi-turn case carries on from here.
     """
     provider = get_provider(model or os.environ.get("AGENT_MODEL") or "openai:")
+    try:
+        return await _loop(provider, messages, tool_specs, call_tool, context, max_steps)
+    finally:
+        if hasattr(provider, "aclose"):
+            await provider.aclose()
+
+
+async def _loop(provider: Any, messages: list[dict], tool_specs: list,
+                call_tool: ToolCaller, context: dict | None, max_steps: int) -> dict:
     system = build_system(context)
     convo = list(messages)
     usage = Usage()
