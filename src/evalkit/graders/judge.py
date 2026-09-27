@@ -64,6 +64,15 @@ class JevJudge:
                     passed=None, severity=self.severity, abstained=True,
                     evidence=evidence, explanation=explanation)
 
+    def cache_key(self, case: Case, traj: Trajectory) -> dict | None:
+        """Everything that decides jev's answer (see graders/judge_cache.py)."""
+        path = self.rubric_dir / f"{case.expected.rubric_id}.json"
+        if case.expected.rubric_id is None or not path.exists():
+            return None
+        return {"case": case.id, "rubric": path.read_text(),
+                "model": os.environ.get("JEV_MODEL") or "jev-latest",
+                "reply": traj.final_output or ""}
+
     async def grade(self, case: Case, traj: Trajectory) -> Score:
         rubric_id = case.expected.rubric_id
         if rubric_id is None:
@@ -108,9 +117,12 @@ class JevJudge:
         url = "https://api.typesafe.ai/v1/systemone"
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-        try:
+        async def ask() -> float:
             resp = await self._transport(url, headers, body)
-            noul = float(resp["answers"][question]["noul"])
+            return float(resp["answers"][question]["noul"])
+
+        try:
+            samples = [await ask()]
         except Exception as e:
             # Network error, bad status, unexpected shape - all the same
             # outcome here: abstain, never crash the run over a judge call.
@@ -118,11 +130,27 @@ class JevJudge:
                                  "judge call failed or returned an "
                                  "unexpected shape - abstaining, not guessing")
 
-        passed = noul >= 0.5
+        # The pass line and the borderline band live in the rubric, so they
+        # can be set from gold labels (`ef judge-check`) instead of guessed.
+        threshold = float(rubric.get("threshold", 0.5))
+        band = float(rubric.get("borderline_band", 0.0))
+        repeats = int(rubric.get("repeats", 1))
+        # One sample near the line is a coin flip (0.49 fail, 0.51 pass for
+        # the same reply). Near it, ask again and decide on the mean.
+        if repeats > 1 and abs(samples[0] - threshold) < band:
+            more = await asyncio.gather(*(ask() for _ in range(repeats - 1)),
+                                        return_exceptions=True)
+            samples += [x for x in more if isinstance(x, float)]
+        noul = sum(samples) / len(samples)
+
+        passed = noul >= threshold
+        detail = (f" (mean of {len(samples)} - first sample was borderline)"
+                  if len(samples) > 1 else "")
         return score(self, noul, passed,
-                    {"rubric_id": rubric_id, "raw_noul": noul, "reply": traj.final_output},
-                    f"jev scored {noul:.2f} against rubric '{rubric_id}'"
-                    + ("" if passed else " - below the 0.5 bar"))
+                    {"rubric_id": rubric_id, "raw_noul": noul, "samples": samples,
+                     "threshold": threshold, "reply": traj.final_output},
+                    f"jev scored {noul:.2f} against rubric '{rubric_id}'{detail}"
+                    + ("" if passed else f" - below the {threshold:g} bar"))
 
 
 async def augment_with_judge(result: CaseResult, case: Case, traj: Trajectory,

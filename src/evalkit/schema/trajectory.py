@@ -99,7 +99,8 @@ class Trajectory(Frozen):
     state_after: dict = {}
     state_diff: list[StateChange] = []   # computed by the env, not the adapter
 
-    usage: Usage = Usage()
+    usage: Usage = Usage()           # the agent's model calls
+    user_usage: Usage = Usage()      # the simulated user's, kept apart: not the agent's cost
     latency_ms: int = 0
     stop_reason: StopReason = StopReason.COMPLETED
     error: str | None = None

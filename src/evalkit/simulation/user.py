@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import hashlib
 
-from evalkit.providers.base import Provider
+from evalkit.providers.base import Provider, add_usage
 from evalkit.schema.case import UserSim
+from evalkit.schema.trajectory import Usage
 from evalkit.simulation.personas import Persona
 
 DONE = "[DONE]"
@@ -57,6 +58,7 @@ class SimulatedUser:
         self.persona = persona
         self.provider = provider
         self._next = 0
+        self.usage = Usage()             # model tokens spent playing the user
         facts = "\n".join(f"- {k}: {v}" for k, v in sim.facts.items()) or "- nothing beyond your goal"
         self.system = PROMPT.format(goal=sim.goal, facts=facts,
                                     persona=persona.render(), done=DONE)
@@ -74,6 +76,7 @@ class SimulatedUser:
                   + "\n\nWrite the user's next message.")
         out = await self.provider.complete([{"role": "user", "content": prompt}],
                                            system=self.system, max_tokens=2000)
+        self.usage = add_usage(self.usage, out.usage)
         text = out.text.strip()
         if not text or DONE in text:
             return None

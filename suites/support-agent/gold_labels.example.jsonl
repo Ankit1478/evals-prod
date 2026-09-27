@@ -1,6 +1,9 @@
-// Template. Copy to gold_labels.jsonl and fill in REAL human verdicts.
-// One line per case. human_decision is PASS or FAIL - your judgement of the
+// Template. Real labels go in gold_labels.jsonl - write them with `ef label`,
+// which pins each one to the exact reply you read (reply_sha256) and records
+// who labelled it. human_decision is PASS or FAIL - your judgement of the
 // agent's reply, made by reading the trajectory (`ef trace <case_id>`).
+// The case-level lines below (no reply_sha256) still load, but match any
+// reply the run produced - prefer `ef label`.
 //
 // These must be written by a person. Generating them with a model measures
 // nothing except whether two models agree with each other, which is exactly

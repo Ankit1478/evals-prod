@@ -141,3 +141,56 @@ async def test_jev_model_comes_from_env(tmp_path, monkeypatch):
     judge = JevJudge(rubric_dir=write_rubric(tmp_path / "rubrics"), transport=transport)
     await judge.grade(make_case(expected={"rubric_id": "empathetic_refusal"}), make_traj())
     assert sent["model"] == "jev-pinned-1"
+
+
+def _borderline_rubric(tmp_path, **extra):
+    import json
+    d = tmp_path / "rubrics"
+    d.mkdir(exist_ok=True)
+    (d / "tone.json").write_text(json.dumps({"judge": "jev", "instructions": "i",
+                                             "criteria": {"true": "t", "false": "f"},
+                                             **extra}))
+    return d
+
+
+async def test_a_borderline_score_is_re_asked_and_the_mean_decides(tmp_path, monkeypatch):
+    from evalkit.graders.judge import JevJudge
+    monkeypatch.setenv("JEV", "k")
+    replies = iter([0.49, 0.70, 0.62])
+
+    async def transport(url, headers, body):
+        return {"answers": {"meets_rubric": {"noul": next(replies)}}}
+
+    d = _borderline_rubric(tmp_path, threshold=0.5, borderline_band=0.15, repeats=3)
+    s = await JevJudge(d, transport=transport).grade(
+        make_case(expected={"rubric_id": "tone"}), make_traj())
+    assert s.evidence["samples"] == [0.49, 0.70, 0.62]
+    assert s.passed is True                       # mean 0.60, not the first 0.49
+
+
+async def test_a_clear_score_is_asked_once(tmp_path, monkeypatch):
+    from evalkit.graders.judge import JevJudge
+    monkeypatch.setenv("JEV", "k")
+    calls = []
+
+    async def transport(url, headers, body):
+        calls.append(1)
+        return {"answers": {"meets_rubric": {"noul": 0.95}}}
+
+    d = _borderline_rubric(tmp_path, borderline_band=0.15, repeats=3)
+    await JevJudge(d, transport=transport).grade(
+        make_case(expected={"rubric_id": "tone"}), make_traj())
+    assert len(calls) == 1
+
+
+async def test_the_threshold_comes_from_the_rubric(tmp_path, monkeypatch):
+    from evalkit.graders.judge import JevJudge
+    monkeypatch.setenv("JEV", "k")
+
+    async def transport(url, headers, body):
+        return {"answers": {"meets_rubric": {"noul": 0.6}}}
+
+    d = _borderline_rubric(tmp_path, threshold=0.7)
+    s = await JevJudge(d, transport=transport).grade(
+        make_case(expected={"rubric_id": "tone"}), make_traj())
+    assert s.passed is False and "0.7 bar" in s.explanation

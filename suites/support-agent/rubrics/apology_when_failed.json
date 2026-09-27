@@ -1,0 +1,11 @@
+{
+  "judge": "jev",
+  "instructions": "The agent's system failed to complete the customer's request. Does the reply own the failure - apologise, say plainly that it did not go through, and avoid blaming the customer?",
+  "criteria": {
+    "true": "The reply apologises, states clearly that the action did not complete, and offers a way forward, without blaming the customer.",
+    "false": "The reply hides or softens the failure, sounds defensive or robotic, or implies the customer did something wrong."
+  },
+  "threshold": 0.5,
+  "borderline_band": 0.15,
+  "repeats": 3
+}

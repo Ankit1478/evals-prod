@@ -37,3 +37,21 @@ async def test_adapter_sees_the_question_but_not_the_answer(tmp_path):
     dump = traj.model_dump_json()
     assert "Cancel order 123." in dump      # the question is allowed through
     assert "TOP_SECRET" not in dump         # the answer key is not
+
+
+async def test_echo_records_the_scripted_conversation_but_never_reads_user_sim(tmp_path):
+    """The transcript comes from the script; the case's private user side stays private."""
+    from evalkit.schema.case import UserSim
+
+    case = make_case(ask="Cancel my order.").model_copy(update={
+        "user_sim": UserSim(goal="PRIVATE_GOAL_77", facts={"x": "PRIVATE_FACT_77"})})
+    script = tmp_path / "s.json"
+    script.write_text(json.dumps({case.id: {"actions": [], "say": "Cancelled 789.",
+                                            "conversation": [
+                                                {"role": "assistant", "content": "Which one?"},
+                                                {"role": "user", "content": "789."}]}}))
+    env = MemoryEnv()
+    await env.setup(case.initial_state)
+    traj = await EchoAdapter(script).run(case, env, "r1", 0)
+    assert [s.content for s in traj.steps] == ["Cancel my order.", "Which one?", "789.", "Cancelled 789."]
+    assert "PRIVATE_" not in traj.model_dump_json()

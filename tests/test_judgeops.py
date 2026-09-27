@@ -6,6 +6,7 @@ answering PASS scores 90%.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -80,3 +81,79 @@ def test_the_floor_is_ours_not_the_subsystems():
     """Upstream has no absolute kappa floor - only a relative regression
     tolerance. This constant is a product decision made here."""
     assert KAPPA_FLOOR == 0.70
+
+
+# --- pinned labels and the fitted pass line ------------------------------------
+
+def _judged_reply(case_id, reply, passed=True, value=1.0, grader="judge.rubric", **ev):
+    return CaseResult(case_id=case_id, trial_index=0, stop_reason="completed", passed=True,
+                      scores=[Score(grader=grader, grader_version="1", value=value,
+                                    passed=passed, severity=Severity.MAJOR,
+                                    evidence={"reply": reply, **ev})])
+
+
+def test_a_pinned_label_counts_only_for_the_reply_the_human_read():
+    from evalkit.judgeops import GoldLabel, labels_for_run
+    from evalkit.review import reply_hash
+
+    rows = [GoldLabel(case_id="c1", human_decision="FAIL", reply_sha256=reply_hash("old reply"))]
+    assert labels_for_run(rows, [_judged_reply("c1", "old reply")]) == {"c1": "FAIL"}
+    assert labels_for_run(rows, [_judged_reply("c1", "a new reply")]) == {}
+
+
+def test_an_unpinned_label_is_case_level():
+    from evalkit.judgeops import GoldLabel, labels_for_run
+    rows = [GoldLabel(case_id="c1", human_decision="PASS")]
+    assert labels_for_run(rows, [_judged_reply("c1", "anything")]) == {"c1": "PASS"}
+
+
+def test_the_latest_label_wins():
+    from evalkit.judgeops import GoldLabel, labels_for_run
+    rows = [GoldLabel(case_id="c1", human_decision="PASS"),
+            GoldLabel(case_id="c1", human_decision="FAIL")]
+    assert labels_for_run(rows, [_judged_reply("c1", "r")]) == {"c1": "FAIL"}
+
+
+def test_the_pass_line_is_fitted_to_the_humans():
+    from evalkit.judgeops import suggest_threshold
+    # Humans pass everything at 0.6 and above: 0.5 would be too lenient.
+    pairs = [(0.9, "PASS"), (0.8, "PASS"), (0.7, "PASS"), (0.65, "PASS"), (0.6, "PASS"),
+             (0.55, "FAIL"), (0.5, "FAIL"), (0.4, "FAIL"), (0.2, "FAIL"), (0.1, "FAIL")]
+    t, agree = suggest_threshold(pairs)
+    assert 0.55 < t <= 0.6 and agree == 1.0
+
+
+def test_no_threshold_is_suggested_from_a_handful_of_labels():
+    from evalkit.judgeops import suggest_threshold
+    assert suggest_threshold([(0.9, "PASS"), (0.1, "FAIL")]) is None
+
+
+def test_ef_label_pins_the_reply_and_hides_the_judges_verdict(tmp_path, monkeypatch):
+    import shutil
+
+    from typer.testing import CliRunner
+
+    from evalkit.cli import app
+    from evalkit.judgeops import load_gold_label_rows
+    from evalkit.review import reply_hash
+
+    suite = tmp_path / "suite"
+    shutil.copytree(Path("suites/support-agent"), suite)
+    (suite / "gold_labels.jsonl").unlink(missing_ok=True)    # the real suite's labels are not ours
+    run = tmp_path / "runs" / "r1"
+    run.mkdir(parents=True)
+    row = _judged_reply("order_cancel_empathy_11", "So sorry - I can't cancel 456.",
+                        value=0.97, threshold=0.5).model_dump(mode="json")
+    (run / "scores.jsonl").write_text(json.dumps({**row, "kind": "capability"}) + "\n")
+    monkeypatch.chdir(tmp_path)
+
+    listing = CliRunner().invoke(app, ["label", "--run", "r1", "--suite", str(suite)])
+    assert listing.exit_code == 0
+    assert "So sorry" in listing.output and "0.97" not in listing.output   # no anchoring
+
+    out = CliRunner().invoke(app, ["label", "order_cancel_empathy_11", "--decision", "pass",
+                                   "--reviewer", "Ankit", "--run", "r1", "--suite", str(suite)])
+    assert out.exit_code == 0
+    [label] = load_gold_label_rows(suite / "gold_labels.jsonl")
+    assert label.reply_sha256 == reply_hash("So sorry - I can't cancel 456.")
+    assert label.reviewer == "Ankit"

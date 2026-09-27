@@ -1,10 +1,21 @@
 {
   "_comment": "Which tools break, per case. The backend failing is a behaviour to test, not an accident. Case -> tool -> the error the agent sees.",
-
   "order_cancel_toolfail_09": {
     "cancel_order": "upstream timeout after 30s"
   },
   "order_refund_toolfail_10": {
+    "refund_order": "HTTP 500 from payments service"
+  },
+  "order_lookup_toolfail_22": {
+    "lookup_order": "orders service timeout after 30s"
+  },
+  "order_cancel_apology_25": {
+    "cancel_order": "upstream timeout after 30s"
+  },
+  "order_refund_nextsteps_fail_27": {
+    "refund_order": "HTTP 500 from payments service"
+  },
+  "order_refund_toolfail_23": {
     "refund_order": "HTTP 500 from payments service"
   }
 }

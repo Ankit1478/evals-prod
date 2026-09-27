@@ -1,0 +1,11 @@
+{
+  "judge": "jev",
+  "instructions": "After helping, or trying to help, with the customer's request, does the reply tell the customer clearly what happens next - what was done or not done, what they should expect, and anything they need to do?",
+  "criteria": {
+    "true": "The reply states the outcome plainly and gives a concrete next step or expectation (a ticket number, who will contact them, how the refund comes back, what they need to do).",
+    "false": "The reply leaves the customer unsure what happens next: no clear outcome, no next step, or only vague reassurance."
+  },
+  "threshold": 0.5,
+  "borderline_band": 0.15,
+  "repeats": 3
+}

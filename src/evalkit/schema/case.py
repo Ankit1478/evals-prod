@@ -67,6 +67,9 @@ class Expected(Frozen):
     answer_not_contains: list[str] = []
     answer_json_schema: dict | None = None
     rubric_id: str | None = None
+    # For LLM judges: a correct reply, or the facts one must state. With it
+    # the judge compares against a reference instead of its own opinion.
+    reference_answer: str | None = None
     should_refuse: bool = False
     should_clarify: bool = False
     acceptable_alternatives: list[str] = []

@@ -151,7 +151,8 @@ class InProcessAdapter:
         return Trajectory(
             run_id=run_id, case_id=case.id, trial_index=trial_index,
             steps=steps, tool_calls=calls, final_output=final,
-            usage=usage, latency_ms=int((time.perf_counter() - t0) * 1000),
+            usage=usage, user_usage=user.usage if user is not None else Usage(),
+            latency_ms=int((time.perf_counter() - t0) * 1000),
             stop_reason=stop,
             error=final if stop is StopReason.ERROR else None,
         )

@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evals Dashboard</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f1f3f6; --text: #16181d; --muted: #5f6673;
+  --line: #e2e5ea; --accent: #3b5bdb; --accent-soft: #e7ecfd;
+  --pass: #1f7a3d; --pass-soft: #e3f4e8; --fail: #c2332b; --fail-soft: #fbe7e6;
+  --review: #9a6a00; --review-soft: #fdf2d9; --abstain: #6b7280; --abstain-soft: #eef0f3;
+  --customer: #eef2ff; --agent: #ffffff; --tool: #f6f7f9;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212a; --text: #e7e9ee; --muted: #9aa3b2;
+    --line: #2a2f3a; --accent: #7c93ff; --accent-soft: #232b4a;
+    --pass: #4cc774; --pass-soft: #16301f; --fail: #ff6b61; --fail-soft: #3a1b19;
+    --review: #f0b43c; --review-soft: #3a2d10; --abstain: #9aa3b2; --abstain-soft: #242832;
+    --customer: #1f2640; --agent: #171a21; --tool: #1b1f27;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --panel: #171a21; --panel-2: #1d212a; --text: #e7e9ee; --muted: #9aa3b2;
+  --line: #2a2f3a; --accent: #7c93ff; --accent-soft: #232b4a;
+  --pass: #4cc774; --pass-soft: #16301f; --fail: #ff6b61; --fail-soft: #3a1b19;
+  --review: #f0b43c; --review-soft: #3a2d10; --abstain: #9aa3b2; --abstain-soft: #242832;
+  --customer: #1f2640; --agent: #171a21; --tool: #1b1f27;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1280px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.brand { font-weight: 700; letter-spacing: -0.01em; margin-right: 6px; }
+.brand span { color: var(--muted); font-weight: 500; }
+nav { display: flex; gap: 2px; flex-wrap: wrap; }
+nav a { padding: 6px 10px; border-radius: 8px; color: var(--muted); font-weight: 500; }
+nav a.on { background: var(--accent-soft); color: var(--accent); }
+nav a:hover { text-decoration: none; color: var(--text); }
+.count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px;
+  background: var(--review-soft); color: var(--review); font-size: 11px; text-align: center; font-weight: 700; }
+.spacer { flex: 1; }
+select, input, textarea, button { font: inherit; color: var(--text); }
+select, input, textarea { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; }
+textarea { width: 100%; min-height: 54px; resize: vertical; }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 14px; font-weight: 600; }
+button:hover { border-color: var(--accent); }
+button.pass { background: var(--pass-soft); color: var(--pass); border-color: transparent; }
+button.fail { background: var(--fail-soft); color: var(--fail); border-color: transparent; }
+button:disabled { opacity: .5; cursor: default; }
+main { max-width: 1280px; margin: 0 auto; padding: 18px 16px 60px; }
+h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 22px 0 10px; }
+.sub { color: var(--muted); margin: 0 0 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.grid { display: grid; gap: 12px; }
+.cards { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.card .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.card .v { font-size: 26px; font-weight: 700; margin-top: 2px; }
+.card .d { color: var(--muted); font-size: 12px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--panel-2); }
+.tbl { overflow-x: auto; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.b-PASS, .b-SHIP { background: var(--pass-soft); color: var(--pass); }
+.b-FAIL, .b-BLOCKED { background: var(--fail-soft); color: var(--fail); }
+.b-REVIEW { background: var(--review-soft); color: var(--review); }
+.b-ABSTAIN, .b-INVALID, .b-none { background: var(--abstain-soft); color: var(--abstain); }
+.b-INVALID { color: var(--fail); }
+.sev { font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.sev-critical { color: var(--fail); } .sev-major { color: var(--review); } .sev-minor { color: var(--muted); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.why { color: var(--muted); font-size: 12.5px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; align-items: center; }
+.chip { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 13px; }
+.chip.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
+.stages { display: grid; gap: 6px; }
+.stage { display: flex; gap: 10px; align-items: baseline; }
+.stage .n { font-weight: 700; min-width: 110px; }
+.two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+.chat { display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 88%; padding: 10px 13px; border-radius: 12px; border: 1px solid var(--line); white-space: pre-wrap; word-wrap: break-word; }
+.msg .who { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 3px; }
+.msg.user { align-self: flex-end; background: var(--customer); border-color: transparent; }
+.msg.assistant { align-self: flex-start; background: var(--agent); }
+.msg.final { border: 2px solid var(--accent); }
+.tool { align-self: flex-start; width: 88%; background: var(--tool); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 12px; }
+.tool summary { cursor: pointer; font-family: var(--mono); font-size: 12.5px; }
+.tool.failed { border-color: var(--fail); }
+pre { margin: 6px 0 0; padding: 8px 10px; background: var(--panel-2); border-radius: 8px; overflow-x: auto;
+  font: 12px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; }
+details > summary { cursor: pointer; }
+.score { border-bottom: 1px solid var(--line); padding: 8px 0; }
+.score:last-child { border-bottom: 0; }
+.score .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.score .name { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+.qcard { margin-bottom: 12px; }
+.qcard .reply { white-space: pre-wrap; background: var(--panel-2); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.qcard .ask { margin: 4px 0; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.progress { height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+.progress > div { height: 100%; background: var(--accent); }
+.note { border-left: 3px solid var(--review); background: var(--review-soft); padding: 8px 12px; border-radius: 6px; margin: 0 0 14px; }
+.empty { padding: 30px; text-align: center; color: var(--muted); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.kappa-bar { position: relative; height: 10px; background: var(--panel-2); border-radius: 99px; margin: 6px 0; }
+.kappa-bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; }
+.kappa-bar .floor { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
+.guide { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+@media (max-width: 700px) { .guide { grid-template-columns: 1fr; } }
+.guide .g { border-radius: 8px; padding: 8px 11px; font-size: 13px; }
+.guide .g b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
+.guide .gp { background: var(--pass-soft); } .guide .gp b { color: var(--pass); }
+.guide .gf { background: var(--fail-soft); } .guide .gf b { color: var(--fail); }
+.q { font-weight: 600; margin: 8px 0 0; }
+.tests { font-size: 13px; background: var(--accent-soft); border-radius: 8px; padding: 7px 11px; margin: 8px 0; }
+.tests b { color: var(--accent); }
+.howto ol, .howto ul { margin: 6px 0; padding-left: 20px; }
+.howto li { margin: 3px 0; }
+.ex { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); border-radius: 8px; padding: 9px 11px; white-space: pre-wrap; }
+.crit { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.toast { position: fixed; bottom: 18px; right: 18px; background: var(--text); color: var(--bg); padding: 9px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; }
+.toast.on { opacity: .95; }
+svg text { fill: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <div class="brand">Evals <span>dashboard</span></div>
+  <nav id="nav"></nav>
+  <div class="spacer"></div>
+  <label class="muted">Run <select id="runSel"></select></label>
+  <button id="themeBtn" title="Toggle theme">◐</button>
+</div></header>
+<main id="app"><div class="empty">Loading…</div></main>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = (x) => x == null ? "–" : Math.round(x * 100) + "%";
+const ago = (iso) => iso ? new Date(iso).toLocaleString() : "";
+const badge = (s) => `<span class="badge b-${esc(s)}">${esc(s)}</span>`;
+const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: {"Content-Type": "application/json"},
+                                        body: JSON.stringify(body) } : {});
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); setTimeout(() => t.classList.remove("on"), 1800); }
+function gateWord(g) {
+  if (!g) return "none";
+  return {0: "SHIP", 2: "BLOCKED", 3: "INVALID", 4: "REVIEW"}[g.exit_code] || "BLOCKED";
+}
+const GATE_HELP = {SHIP: "exit 0 — ship it", BLOCKED: "exit 2 — the agent failed", INVALID: "exit 3 — the eval itself broke",
+                   REVIEW: "exit 4 — judges disagreed; a human must decide", none: "no results"};
+
+// ---- theme ---------------------------------------------------------------
+const theme = store.get("theme", "");
+if (theme) document.documentElement.dataset.theme = theme;
+$("#themeBtn").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next; store.set("theme", next);
+};
+
+// ---- state + routing ------------------------------------------------------
+let OVERVIEW = null;
+let RUN = store.get("run", "");
+async function loadOverview() {
+  OVERVIEW = await api("/api/overview");
+  const ids = OVERVIEW.runs.map(r => r.run_id);
+  if (!ids.includes(RUN)) RUN = ids[0] || "";
+  $("#runSel").innerHTML = OVERVIEW.runs.map(r =>
+    `<option value="${esc(r.run_id)}" ${r.run_id === RUN ? "selected" : ""}>${esc(r.run_id)} · ${esc(r.model || r.adapter)}</option>`).join("");
+}
+$("#runSel").onchange = (e) => { RUN = e.target.value; store.set("run", RUN);
+  const [page] = parse(); location.hash = page === "runs" ? "#/" : `#/${page === "case" ? "run" : page}/${RUN}`; };
+function parse() {
+  const p = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  return [p[0] || "runs", ...p.slice(1)];
+}
+function renderNav(page, reviewCount, labelTodo) {
+  const items = [["runs", "#/", "Runs"], ["run", `#/run/${RUN}`, "Run"],
+                 ["review", `#/review/${RUN}`, "Review" + (reviewCount ? `<span class="count">${reviewCount}</span>` : "")],
+                 ["label", `#/label/${RUN}`, "Label"], ["judges", `#/judges/${RUN}`, "Judges"],
+                 ["guide", "#/guide", "Guide"]];
+  $("#nav").innerHTML = items.map(([k, href, t]) =>
+    `<a href="${href}" class="${page === k || (k === "run" && page === "case") ? "on" : ""}">${t}</a>`).join("");
+}
+async function route() {
+  const [page, ...args] = parse();
+  if (args[0] && page !== "guide") { RUN = args[0]; store.set("run", RUN); $("#runSel").value = RUN; }
+  const cur = OVERVIEW.runs.find(r => r.run_id === RUN);
+  renderNav(page, cur ? cur.review : 0);
+  const app = $("#app");
+  app.innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    if (!OVERVIEW.runs.length && page !== "guide") { app.innerHTML = emptyRuns(); return; }
+    const view = {runs: viewRuns, run: viewRun, case: viewCase, review: viewReview,
+                  label: viewLabel, judges: viewJudges, guide: viewGuide}[page] || viewRuns;
+    await view(app, args);
+  } catch (e) {
+    app.innerHTML = `<div class="panel"><b>Could not load:</b> ${esc(e.message)}</div>`;
+  }
+  window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", route);
+function emptyRuns() {
+  return `<div class="panel empty">No runs yet. Start one:<pre>uv run ef run suites/support-agent</pre></div>`;
+}
+
+// ---- Runs + trend ----------------------------------------------------------
+let RFILTER = store.get("rfilter", "all");
+async function viewRuns(app) {
+  const runs = OVERVIEW.runs.filter(r => RFILTER === "all" || (RFILTER === "echo" ? r.adapter === "echo" : r.adapter !== "echo"));
+  if (!runs.length) { RFILTER = "all"; store.set("rfilter", "all"); return viewRuns(app); }
+  const latest = runs[0];
+  const kinds = [...new Set(runs.flatMap(r => Object.keys(r.per_kind)))].sort();
+  app.innerHTML = `
+    <h1>All runs</h1>
+    <p class="sub">Every <span class="mono">ef run</span> recorded in <span class="mono">runs/</span>, newest first. Suite: <span class="mono">${esc(OVERVIEW.suite)}</span></p>
+    <div class="grid cards">
+      <div class="panel card"><div class="k">Runs</div><div class="v">${runs.length}</div><div class="d">recorded</div></div>
+      <div class="panel card"><div class="k">Latest</div><div class="v">${latest.reliable}/${latest.cases}</div><div class="d">cases passed every trial</div></div>
+      <div class="panel card"><div class="k">Latest gate</div><div class="v">${badge(gateWord(latest.gate))}</div><div class="d">${esc(GATE_HELP[gateWord(latest.gate)])}</div></div>
+      <div class="panel card"><div class="k">Awaiting review</div><div class="v">${latest.review}</div><div class="d">in the latest run</div></div>
+    </div>
+    <div class="chips" style="margin-top:16px">${[["all", "All runs"], ["real", "Real agent"], ["echo", "Echo (scripted)"]].map(([k, t]) =>
+      `<span class="chip ${RFILTER === k ? "on" : ""}" data-rf="${k}">${t}</span>`).join("")}</div>
+    <h2>Trend — pass^k per case kind</h2>
+    <div class="panel">${trendChart(runs.slice().reverse(), kinds)}</div>
+    <h2>Runs</h2>
+    <div class="panel tbl"><table>
+      <thead><tr><th>Run</th><th>Agent</th><th>Cases</th><th>Passed</th>${kinds.map(k => `<th>${esc(k)}</th>`).join("")}<th>Review</th><th>Gate</th></tr></thead>
+      <tbody>${runs.map(r => `
+        <tr class="click" data-run="${esc(r.run_id)}">
+          <td><div class="mono">${esc(r.run_id)}</div><div class="why">${esc(ago(r.started_at))}${r.finished ? "" : " · unfinished"}</div></td>
+          <td>${esc(r.adapter === "echo" ? "echo (scripted)" : r.model || r.adapter)}<div class="why">${r.trials} trial(s)</div></td>
+          <td>${r.cases}</td><td><b>${r.reliable}</b>/${r.cases}</td>
+          ${kinds.map(k => `<td>${pct(r.per_kind[k])}</td>`).join("")}
+          <td>${r.review ? badge("REVIEW") + " " + r.review : "–"}</td>
+          <td>${badge(gateWord(r.gate))}</td>
+        </tr>`).join("")}</tbody></table></div>`;
+  app.querySelectorAll("tr[data-run]").forEach(tr => tr.onclick = () => location.hash = `#/run/${tr.dataset.run}`);
+  app.querySelectorAll("[data-rf]").forEach(ch => ch.onclick = () => { RFILTER = ch.dataset.rf; store.set("rfilter", RFILTER); viewRuns(app); });
+}
+function trendChart(runs, kinds) {
+  if (runs.length < 2) return `<div class="muted">Run the suite at least twice to see a trend.</div>`;
+  const W = 900, H = 200, L = 36, B = 22, T = 10, R = 10;
+  const colors = ["var(--accent)", "var(--pass)", "var(--review)", "var(--fail)"];
+  const x = (i) => L + (W - L - R) * (runs.length === 1 ? 0 : i / (runs.length - 1));
+  const y = (v) => T + (H - T - B) * (1 - v);
+  let g = [0, .25, .5, .75, 1].map(v =>
+    `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="4" y="${y(v) + 4}">${v * 100}%</text>`).join("");
+  kinds.forEach((k, ki) => {
+    const pts = runs.map((r, i) => r.per_kind[k] == null ? null : [x(i), y(r.per_kind[k])]).filter(Boolean);
+    if (!pts.length) return;
+    g += `<polyline fill="none" stroke="${colors[ki % 4]}" stroke-width="2" points="${pts.map(p => p.join(",")).join(" ")}"/>`;
+    g += pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="${colors[ki % 4]}"/>`).join("");
+  });
+  const legend = kinds.map((k, ki) => `<span><i style="background:${colors[ki % 4]}"></i>${esc(k)}</span>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="pass rate trend">${g}</svg>
+          <div class="legend">${legend}<span>oldest → newest · ${runs.length} runs</span></div>`;
+}
+
+// ---- One run ---------------------------------------------------------------
+let FILTER = store.get("filter", "ALL");
+async function viewRun(app, [runId]) {
+  const d = await api(`/api/runs/${encodeURIComponent(runId || RUN)}`);
+  const a = d.manifest.adapter || {};
+  const um = a.user_model ? `${a.user_model.provider}:${a.user_model.model}` : "";
+  const counts = {ALL: d.cases.length, FAIL: 0, REVIEW: 0, PASS: 0};
+  d.cases.forEach(c => counts[c.status]++);
+  const g = d.gate;
+  app.innerHTML = `
+    <h1>Run <span class="mono">${esc(d.run_id)}</span></h1>
+    <p class="sub">${esc(ago(d.manifest.started_at))} · adapter <b>${esc(a.adapter)}</b>
+      ${a.model ? ` · agent <span class="mono">${esc(a.model)}</span>` : ""}
+      ${um ? ` · simulated user <span class="mono">${esc(um)}</span>` : ""}
+      · ${d.manifest.trials_per_case || 1} trial(s)
+      ${d.judge_tokens.input ? ` · judge tokens ${d.judge_tokens.input.toLocaleString()} in / ${d.judge_tokens.output.toLocaleString()} out` : ""}</p>
+    <div class="two">
+      <div class="panel">
+        <div class="row"><b>Gate</b> ${badge(gateWord(g))} <span class="muted">${esc(GATE_HELP[gateWord(g)])}</span></div>
+        <div class="stages" style="margin-top:10px">${g ? g.stages.map(s =>
+          `<div class="stage">${badge(s.passed ? "PASS" : "FAIL")}<span class="n">${esc(s.stage)}</span><span class="why">${esc(s.detail)}</span></div>`).join("") : "–"}</div>
+      </div>
+      <div class="grid cards">${d.suites.map(s => `
+        <div class="panel card"><div class="k">${esc(s.kind)}</div><div class="v">${pct(s.pass_hat_k)}</div>
+          <div class="d">${s.cases} cases · CI ${pct(s.ci_low)}–${pct(s.ci_high)}</div>
+          ${s.flaky_cases.length ? `<div class="d">flaky: ${esc(s.flaky_cases.join(", "))}</div>` : ""}
+          ${s.pending_cases.length ? `<div class="d" style="color:var(--review)">review: ${esc(s.pending_cases.join(", "))}</div>` : ""}
+        </div>`).join("")}</div>
+    </div>
+    <h2>Cases</h2>
+    <div class="chips" id="chips">
+      ${["ALL", "FAIL", "REVIEW", "PASS"].map(f => `<span class="chip ${FILTER === f ? "on" : ""}" data-f="${f}">${f} · ${counts[f] || 0}</span>`).join("")}
+      <span class="chip ${FILTER === "JUDGED" ? "on" : ""}" data-f="JUDGED">judged</span>
+      <span class="chip ${FILTER === "MULTI" ? "on" : ""}" data-f="MULTI">multi-turn</span>
+      <input id="q" placeholder="search case or message" style="margin-left:auto;min-width:220px">
+    </div>
+    <div class="panel tbl"><table><thead><tr><th></th><th>Case</th><th>Kind</th><th>Customer said</th><th>Why</th></tr></thead>
+      <tbody id="rows"></tbody></table></div>`;
+  const draw = () => {
+    const q = ($("#q").value || "").toLowerCase();
+    const rows = d.cases.filter(c =>
+      (FILTER === "ALL" || c.status === FILTER || (FILTER === "JUDGED" && c.judged) || (FILTER === "MULTI" && c.multi_turn)) &&
+      (!q || (c.case_id + " " + c.ask).toLowerCase().includes(q)));
+    $("#rows").innerHTML = rows.map(c => `
+      <tr class="click" data-c="${esc(c.case_id)}" data-t="${c.trial}">
+        <td>${badge(c.status)}</td>
+        <td><div class="mono">${esc(c.case_id)}</div><div class="why">trial ${c.trial}${c.multi_turn ? " · multi-turn" : ""}${c.judged ? " · judged" : ""}</div></td>
+        <td>${esc(c.kind)}</td><td>${esc(c.ask)}</td>
+        <td class="why">${c.why.map(esc).join("<br>") || "–"}</td></tr>`).join("") ||
+      `<tr><td colspan="5" class="empty">No cases match.</td></tr>`;
+    app.querySelectorAll("tr[data-c]").forEach(tr => tr.onclick = () =>
+      location.hash = `#/case/${d.run_id}/${tr.dataset.c}/${tr.dataset.t}`);
+  };
+  app.querySelectorAll(".chip").forEach(ch => ch.onclick = () => {
+    FILTER = ch.dataset.f; store.set("filter", FILTER);
+    app.querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === ch)); draw(); });
+  $("#q").oninput = draw;
+  draw();
+}
+
+// ---- One case: conversation + verdicts --------------------------------------
+async function viewCase(app, [runId, caseId, trial]) {
+  const d = await api(`/api/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/${trial || 0}`);
+  const t = d.trajectory, c = d.case;
+  const steps = t.steps || [];
+  const lastAssistant = steps.map(s => s.type).lastIndexOf("assistant");
+  const chat = steps.map((s, i) => {
+    if (s.type === "user") return `<div class="msg user"><div class="who">Customer</div>${esc(s.content)}</div>`;
+    if (s.type === "assistant") return `<div class="msg assistant ${i === lastAssistant ? "final" : ""}"><div class="who">Agent${i === lastAssistant ? " · final reply (judged)" : ""}</div>${esc(s.content)}</div>`;
+    if (s.type === "tool_call" && s.tool_call) {
+      const tc = s.tool_call, failed = tc.status === "failed" || tc.error;
+      return `<details class="tool ${failed ? "failed" : ""}"><summary>🔧 ${esc(tc.name)}(${esc(JSON.stringify(tc.arguments))}) ${failed ? `<b style="color:var(--fail)">FAILED</b>` : `<span class="muted">${esc(tc.status)}</span>`}</summary>
+        <pre>${esc(failed ? tc.error : JSON.stringify(tc.result, null, 2))}</pre></details>`;
+    }
+    if (s.type === "error") return `<div class="msg assistant" style="border-color:var(--fail)"><div class="who">Error</div>${esc(s.content)}</div>`;
+    return "";
+  }).join("");
+  const scores = d.scores.slice().sort((a, b) => order(a) - order(b));
+  const diff = t.state_diff || [];
+  app.innerHTML = `
+    <p class="sub"><a href="#/run/${esc(runId)}">← Run ${esc(runId)}</a></p>
+    <h1><span class="mono">${esc(caseId)}</span> ${badge(d.status || "none")}</h1>
+    <p class="sub">${esc(d.kind)} · trial ${esc(trial || 0)} · stop: <b>${esc(t.stop_reason)}</b>${t.error ? ` · <span style="color:var(--fail)">${esc(t.error)}</span>` : ""}
+      · ${t.latency_ms} ms${c && c.input.persona ? ` · persona <b>${esc(c.input.persona)}</b>` : ""}</p>
+    <div class="two">
+      <div class="panel"><h2 style="margin-top:0">Conversation</h2><div class="chat">${chat || `<div class="muted">No steps recorded.</div>`}</div>
+        ${diff.length ? `<h2>What changed in the shop</h2><table><thead><tr><th>Entity</th><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>
+          ${diff.map(x => `<tr><td class="mono">${esc(x.entity)}</td><td>${esc(x.field)}</td><td>${esc(JSON.stringify(x.before))}</td><td>${esc(JSON.stringify(x.after))}</td></tr>`).join("")}</tbody></table>`
+          : `<h2>What changed in the shop</h2><div class="muted">Nothing — no data was modified.</div>`}
+      </div>
+      <div>
+        <div class="panel"><h2 style="margin-top:0">Verdicts</h2>${scores.map(scoreRow).join("") || `<div class="muted">Not graded.</div>`}</div>
+        ${c ? `<div class="panel" style="margin-top:12px"><h2 style="margin-top:0">The case</h2>
+          ${c.notes ? `<p>${esc(c.notes)}</p>` : ""}
+          <div class="why">tags: ${esc((c.tags || []).join(", "))} · ${esc(c.review_status)} · ${esc(c.source)}</div>
+          <details style="margin-top:8px"><summary><b>Answer key</b> (expected — never shown to the agent)</summary><pre>${esc(JSON.stringify(c.expected, null, 2))}</pre></details>
+          ${c.user_sim ? `<details><summary><b>Simulated user</b> (goal + facts — never shown to the agent)</summary><pre>${esc(JSON.stringify(c.user_sim, null, 2))}</pre></details>` : ""}
+          <details><summary><b>Starting shop data</b></summary><pre>${esc(JSON.stringify(c.initial_state, null, 2))}</pre></details>
+        </div>` : ""}
+      </div>
+    </div>`;
+}
+function order(s) { const sev = {critical: 0, major: 1, minor: 2}[s.severity] ?? 3;
+  return (s.abstained ? 10 : s.passed === false ? 0 : 5) + sev; }
+function scoreRow(s) {
+  const st = s.abstained ? (s.evidence && s.evidence.requires_human_review ? "REVIEW" : "ABSTAIN") : s.passed ? "PASS" : "FAIL";
+  const ev = s.evidence || {};
+  const extra = [];
+  if (ev.per_model) extra.push("judges: " + Object.entries(ev.per_model).map(([m, v]) => `${m} ${v}`).join(" · "));
+  if (ev.samples) extra.push("samples: " + ev.samples.map(x => x.toFixed(2)).join(", ") + (ev.threshold != null ? ` · line ${ev.threshold}` : ""));
+  if (ev.grounded_in_tools != null) extra.push(`grounded in tools: ${ev.grounded_in_tools ? "yes" : "no"} · reference: ${ev.reference ? "yes" : "no"}`);
+  if (ev.cached) extra.push("cached verdict");
+  return `<div class="score"><div class="top">${badge(st)}<span class="name">${esc(s.grader)}</span><span class="sev sev-${esc(s.severity)}">${esc(s.severity)}</span></div>
+    <div class="why">${esc(s.explanation)}</div>${extra.length ? `<div class="why">${extra.map(esc).join("<br>")}</div>` : ""}
+    <details><summary class="why">evidence</summary><pre>${esc(JSON.stringify(ev, null, 2))}</pre></details></div>`;
+}
+
+// ---- Review queue ---------------------------------------------------------------
+function reviewerBox(def) {
+  const v = store.get("reviewer", def || "");
+  return `<label class="muted">Your name <input id="who" value="${esc(v)}" placeholder="reviewer name"></label>`;
+}
+function reviewer() { const v = ($("#who").value || "").trim(); store.set("reviewer", v); return v; }
+async function viewReview(app, [runId]) {
+  const d = await api(`/api/review?run=${encodeURIComponent(runId || RUN)}`);
+  app.innerHTML = `
+    <h1>Human review</h1>
+    <p class="sub">Cases where the two judges disagreed. Your verdict settles the case and is written to <span class="mono">reviews.jsonl</span>, pinned to this exact reply.</p>
+    <div class="row" style="margin-bottom:14px">${reviewerBox(d.reviewer)}</div>
+    ${d.items.length ? d.items.map((it, i) => `
+      <div class="panel qcard" id="rv${i}">
+        <div class="row"><span class="mono"><b>${esc(it.case_id)}</b></span><span class="muted">trial ${it.trial}</span>
+          <span class="spacer"></span><a href="#/case/${esc(d.run_id)}/${esc(it.case_id)}/${it.trial}">full conversation →</a></div>
+        <div class="ask"><span class="muted">Customer:</span> ${esc(it.ask)}</div>
+        <div class="reply">${esc(it.reply)}</div>
+        <div class="why">Judges: ${esc(Object.entries(it.judges || {}).map(([m, v]) => `${m} → ${v}`).join(" · "))}</div>
+        <textarea placeholder="Why? (the reason is what makes a verdict reusable)" id="rn${i}" style="margin-top:8px"></textarea>
+        <div class="row" style="margin-top:8px"><button class="pass" data-i="${i}" data-d="PASS">✓ PASS</button><button class="fail" data-i="${i}" data-d="FAIL">✗ FAIL</button></div>
+      </div>`).join("") : `<div class="panel empty">Nothing waiting for review in this run. 🎉</div>`}`;
+  app.querySelectorAll("button[data-d]").forEach(b => b.onclick = async () => {
+    const it = d.items[b.dataset.i], who = reviewer();
+    if (!who) { toast("Enter your name first"); return; }
+    try {
+      await api("/api/review", {run_id: d.run_id, case_id: it.case_id, trial: it.trial, decision: b.dataset.d,
+                                note: $("#rn" + b.dataset.i).value, reviewer: who});
+      toast(`${it.case_id}: ${b.dataset.d} recorded`);
+      await loadOverview(); route();
+    } catch (e) { toast(e.message); }
+  });
+}
+
+// ---- Gold labels ----------------------------------------------------------------
+let LFILTER = store.get("lfilter", "todo");
+function skippedSet() { try { return new Set(JSON.parse(store.get("skipped", "[]"))); } catch { return new Set(); } }
+function saveSkipped(set) { store.set("skipped", JSON.stringify([...set])); }
+function howToPanel(g) {
+  if (!g) return "";
+  const open = store.get("howto", "open") === "open";
+  const ex = g.example;
+  return `<details class="panel howto" id="howto" ${open ? "open" : ""} style="margin-bottom:14px">
+    <summary><b>How to judge a reply</b> <span class="muted">— read once, then collapse</span></summary>
+    <p style="margin:10px 0 4px">${esc(g.role)}</p>
+    <div class="two" style="margin-top:8px">
+      <div><b>Steps</b><ol>${(g.steps || []).map(x => `<li>${esc(x)}</li>`).join("")}</ol></div>
+      <div><b>The agent's rules</b> <span class="muted">(every reply must respect these)</span><ol>${(g.agent_rules || []).map(x => `<li>${esc(x)}</li>`).join("")}</ol></div>
+    </div>
+    ${ex ? `<b>Example</b><div class="ex">Customer: ${esc(ex.customer)}
+Tools:    ${esc(ex.tools)}
+Reply:    ${esc(ex.reply)}
+Label:    ${esc(ex.label)} — ${esc(ex.why)}</div>` : ""}
+  </details>`;
+}
+function guideBox(it) {
+  const g = it.guide;
+  if (!g) return "";
+  return `<div class="q">${esc(g.question)}</div>
+    <div class="guide"><div class="g gp"><b>✓ Pass when</b>${esc(g.pass)}</div><div class="g gf"><b>✗ Fail when</b>${esc(g.fail)}</div></div>
+    ${g.criteria ? `<div class="crit">Judged on: ${g.criteria.map(c => `<b>${esc(c.name)}</b> ${Math.round(c.weight * 100)}%`).join(" · ")}. ${esc(g.rule || "")}</div>` : ""}`;
+}
+async function viewLabel(app, [runId]) {
+  const d = await api(`/api/label?run=${encodeURIComponent(runId || RUN)}`);
+  const target = 30;
+  const skipped = skippedSet();
+  const keyOf = (it) => `${d.run_id}|${it.case_id}|${it.trial}`;
+  app.innerHTML = `
+    <h1>Gold labels</h1>
+    <p class="sub">Your own PASS/FAIL on judged replies — what <span class="mono">ef judge-check</span> measures the judges against. Written to <span class="mono">gold_labels.jsonl</span>.</p>
+    <div class="note">The judges' verdicts are hidden here on purpose: someone who has seen the judge's answer tends to agree with it, and the label would measure nothing. Label first, look at verdicts after.</div>
+    ${howToPanel(d.guide)}
+    <div class="panel" style="margin-bottom:14px">
+      <div class="row"><b id="tot">${d.total_labels}</b> labels in the suite <span class="muted">(target ${target}+)</span><span class="spacer"></span>
+        <span class="muted" id="runprog"></span></div>
+      <div class="progress" style="margin-top:8px"><div id="bar"></div></div>
+    </div>
+    <div class="chips">${["todo", "done", "skipped", "all"].map(f => `<span class="chip ${LFILTER === f ? "on" : ""}" data-f="${f}">${f}</span>`).join("")}
+      <span class="spacer"></span>${reviewerBox(d.reviewer)}</div>
+    <div id="items"></div>`;
+  const howto = $("#howto");
+  if (howto) howto.addEventListener("toggle", () => store.set("howto", howto.open ? "open" : "closed"));
+  const progress = () => {
+    const done = d.items.filter(x => x.label).length;
+    $("#tot").textContent = d.total_labels;
+    $("#runprog").textContent = `this run: ${done}/${d.items.length} labelled · ${d.items.filter(x => skipped.has(keyOf(x)) && !x.label).length} skipped`;
+    $("#bar").style.width = Math.min(100, d.total_labels / target * 100) + "%";
+  };
+  const draw = () => {
+    progress();
+    const items = d.items.map((it, i) => ({...it, i})).filter(it => {
+      const sk = skipped.has(keyOf(it)) && !it.label;
+      return LFILTER === "all" || (LFILTER === "todo" ? !it.label && !sk : LFILTER === "done" ? !!it.label : sk);
+    });
+    $("#items").innerHTML = items.length ? items.map(it => `
+      <div class="panel qcard">
+        <div class="row"><span class="mono"><b>${esc(it.case_id)}</b></span>
+          <span class="muted">trial ${it.trial}${it.kind ? " · " + esc(it.kind) : ""}${it.rubric ? " · rubric " + esc(it.rubric) : ""}</span>
+          <span class="spacer"></span>${it.label ? badge(it.label) : ""}</div>
+        ${it.notes ? `<div class="tests"><b>What this case tests:</b> ${esc(it.notes)}</div>` : ""}
+        ${it.transcript.length ? `<div class="chat" style="margin:8px 0">${it.transcript.map(m =>
+            `<div class="msg ${m.role}"><div class="who">${m.role === "user" ? "Customer" : "Agent"}</div>${esc(m.content)}</div>`).join("")}</div>`
+          : `<div class="ask"><span class="muted">Customer:</span> ${esc(it.ask)}</div>`}
+        ${it.tools.length ? `<details ${it.rubric === "answer_quality" ? "open" : ""} style="margin:6px 0"><summary class="why">What the tools returned (${it.tools.length}) — the only facts the agent had</summary>
+          <pre>${esc(it.tools.map(t => `${t.name}(${JSON.stringify(t.arguments)}) -> ${t.error ? "FAILED: " + t.error : JSON.stringify(t.result)}`).join("\n"))}</pre></details>`
+          : `<div class="why" style="margin:6px 0">No tool was called.</div>`}
+        <div class="muted" style="font-size:12px;margin-top:6px">Agent's final reply — label this:</div>
+        <div class="reply">${esc(it.reply)}</div>
+        ${guideBox(it)}
+        ${it.reference ? `<details style="margin-bottom:8px"><summary class="why">Reference answer — what a correct reply should say (compare facts, not wording)</summary><div class="reply">${esc(it.reference)}</div></details>` : ""}
+        <textarea placeholder="Why? e.g. 'warm, refused correctly' or 'invented a delivery date'" id="ln${it.i}"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="pass" data-i="${it.i}" data-d="PASS">✓ PASS</button>
+          <button class="fail" data-i="${it.i}" data-d="FAIL">✗ FAIL</button>
+          ${it.label ? `<span class="muted">labelling again replaces your earlier label</span>`
+            : `<button data-skip="${it.i}">${skipped.has(keyOf(it)) ? "Unskip" : "Skip — not sure"}</button>`}
+        </div>
+      </div>`).join("")
+      : `<div class="panel empty">${LFILTER === "todo" ? "Nothing left to label in this run. Pick another run, or run the suite again for fresh replies." : "Nothing here."}</div>`;
+    $("#items").querySelectorAll("button[data-d]").forEach(b => b.onclick = async () => {
+      const it = d.items[b.dataset.i], who = reviewer();
+      if (!who) { toast("Enter your name first"); return; }
+      try {
+        await api("/api/label", {run_id: d.run_id, case_id: it.case_id, trial: it.trial, decision: b.dataset.d,
+                                 note: $("#ln" + b.dataset.i).value, reviewer: who});
+        it.label = b.dataset.d; d.total_labels++; toast(`${it.case_id}: ${b.dataset.d} labelled`); draw();
+      } catch (e) { toast(e.message); }
+    });
+    $("#items").querySelectorAll("button[data-skip]").forEach(b => b.onclick = () => {
+      const k = keyOf(d.items[b.dataset.skip]);
+      skipped.has(k) ? skipped.delete(k) : skipped.add(k); saveSkipped(skipped); draw();
+    });
+  };
+  app.querySelectorAll(".chips .chip").forEach(ch => ch.onclick = () => {
+    LFILTER = ch.dataset.f; store.set("lfilter", LFILTER);
+    app.querySelectorAll(".chips .chip").forEach(x => x.classList.toggle("on", x === ch)); draw(); });
+  draw();
+}
+
+// ---- Judge health -----------------------------------------------------------------
+async function viewJudges(app, [runId]) {
+  const d = await api(`/api/judges?run=${encodeURIComponent(runId || RUN)}`);
+  app.innerHTML = `
+    <h1>Judge health</h1>
+    <p class="sub">Can the judges be believed? Agreement with your gold labels (Cohen's κ, floor ${d.kappa_floor}), and rubric sign-off.</p>
+    <div class="grid cards">
+      <div class="panel card"><div class="k">Rubric approval</div><div class="v">${badge(d.rubric_approval.ok ? "PASS" : "FAIL")}</div><div class="d">${esc(d.rubric_approval.detail)}</div></div>
+      <div class="panel card"><div class="k">Gold labels</div><div class="v">${d.labels_total}</div><div class="d">${d.labels_in_run} match replies in this run · target 30+</div></div>
+    </div>
+    <h2>Per judge</h2>
+    ${d.judges.length ? `<div class="grid cards">${d.judges.map(j => `
+      <div class="panel card">
+        <div class="k">${esc(j.grader)}</div>
+        <div class="v">${j.kappa == null ? "κ –" : "κ " + j.kappa.toFixed(2)} ${j.kappa == null ? "" : badge(j.meets_floor ? "PASS" : "FAIL")}</div>
+        <div class="kappa-bar"><div class="fill" style="width:${j.kappa == null ? 0 : Math.max(0, j.kappa) * 100}%;background:${j.meets_floor ? "var(--pass)" : "var(--review)"}"></div>
+          <div class="floor" style="left:${d.kappa_floor * 100}%" title="floor"></div></div>
+        <div class="d">${j.judged} verdicts · ${j.abstained} could not decide (error, refusal or split)</div>
+        <div class="d">${j.labelled ? `${j.agreed}/${j.labelled} agreed with you (${pct(j.agreement_rate)})` : "no labelled replies yet — label some"}</div>
+        ${j.threshold_pairs ? `<div class="d">pass line: ${j.threshold_fit ? `best threshold <b>${j.threshold_fit.threshold}</b> agrees ${pct(j.threshold_fit.agreement)} — set it in the rubric` : `${j.threshold_pairs} labelled score(s), need 10+ to suggest one`}</div>` : ""}
+      </div>`).join("")}</div>` : `<div class="panel empty">No judge produced a verdict in this run.</div>`}
+    <h2>What the numbers mean</h2>
+    <div class="panel"><ul style="margin:0;padding-left:18px">
+      <li><b>κ (kappa)</b> is agreement with you, corrected for luck. A judge that always says PASS scores ~0 even if 90% of cases pass.</li>
+      <li><b>κ ≥ ${d.kappa_floor}</b>: trust the judge. Below: fix the rubric, add a reference answer, and re-measure.</li>
+      <li>Labels are pinned to the exact reply you read, so a new run needs its own labels for the same case.</li>
+      <li>Other checks from the terminal: <span class="mono">ef judge-stability</span> (same answer twice?) and <span class="mono">ef judge-attack</span> (can it be fooled?).</li>
+    </ul></div>`;
+}
+
+// ---- Guide -------------------------------------------------------------------------
+async function viewGuide(app) {
+  app.innerHTML = `
+    <h1>How to read this dashboard</h1>
+    <p class="sub">An exam for an AI agent: test cases in, a recording of every step, checks and judges, and a ship / don't-ship gate.</p>
+    <div class="grid cards">
+      ${[["Runs", "Every ef run, its pass rates by kind, and the gate. The trend line shows whether the agent is getting better."],
+         ["Run", "One run: the gate's stages, each case kind's pass^k with its confidence interval, and every case with why it failed."],
+         ["Case", "The whole conversation, every tool call and result, what changed in the shop, and every grader's and judge's verdict with its evidence."],
+         ["Review", "The two judges disagreed. You decide PASS or FAIL; the gate uses your verdict."],
+         ["Label", "Your own PASS/FAIL on judged replies, judges hidden. This is what measures the judges."],
+         ["Judges", "Kappa per judge against your labels, the suggested pass line, and rubric approval."]]
+        .map(([k, v]) => `<div class="panel card"><div class="k">${k}</div><div class="d" style="font-size:13.5px;color:var(--text)">${v}</div></div>`).join("")}
+    </div>
+    <h2>Status badges</h2>
+    <div class="panel"><div class="stages">
+      <div class="stage">${badge("PASS")}<span class="why">every check passed</span></div>
+      <div class="stage">${badge("FAIL")}<span class="why">a critical check failed, or a major one did — the reason is in the row</span></div>
+      <div class="stage">${badge("REVIEW")}<span class="why">the judges disagreed; it does not count as a pass until a human decides</span></div>
+      <div class="stage">${badge("ABSTAIN")}<span class="why">the check did not apply, or could not decide — excluded, never guessed</span></div>
+    </div></div>
+    <h2>Gate exit codes</h2>
+    <div class="panel"><div class="stages">${Object.entries(GATE_HELP).filter(([k]) => k !== "none").map(([k, v]) =>
+      `<div class="stage">${badge(k)}<span class="why">${esc(v)}</span></div>`).join("")}</div></div>`;
+}
+
+// ---- boot ---------------------------------------------------------------------------
+(async () => {
+  try { await loadOverview(); await route(); }
+  catch (e) { $("#app").innerHTML = `<div class="panel">Could not reach the server: ${esc(e.message)}</div>`; }
+})();
+</script>
+</body>
+</html>

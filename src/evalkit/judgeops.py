@@ -34,6 +34,132 @@ class AgreementReport(Frozen):
     floor: float = KAPPA_FLOOR
 
 
+class GoldLabel(Frozen):
+    """One human verdict. `reply_sha256` pins it to the exact reply the
+    human read (written by `ef label`); a label without one is case-level,
+    from before pinning, and matches whatever reply the run produced."""
+    case_id: str
+    human_decision: str
+    reply_sha256: str | None = None
+    reviewer: str = ""
+    note: str = ""
+    labeled_at: str = ""
+
+
+def load_gold_label_rows(path: Path) -> list[GoldLabel]:
+    rows: list[GoldLabel] = []
+    if not path.exists():
+        return rows
+    for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+        line = line.strip()
+        if not line or line.startswith("//"):
+            continue
+        row = GoldLabel.model_validate_json(line)
+        decision = row.human_decision.upper()
+        if decision not in {"PASS", "FAIL"}:
+            raise ValueError(f"{path}:{lineno} human_decision must be PASS or FAIL")
+        rows.append(row.model_copy(update={"human_decision": decision}))
+    return rows
+
+
+def reply_of(result: CaseResult) -> str | None:
+    """The reply a judge saw for this result (judges record it as evidence)."""
+    for s in result.scores:
+        if s.grader.startswith("judge.") and "reply" in s.evidence:
+            return s.evidence["reply"]
+    return None
+
+
+def labels_for_run(rows: list[GoldLabel], results: list[CaseResult]) -> dict[str, str]:
+    """case_id -> human verdict, for the labels that apply to THIS run.
+
+    A pinned label counts only when the run produced the very reply the
+    human read. Comparing a judge's verdict on one reply with a human's
+    verdict on a different one would measure nothing.
+    """
+    from evalkit.review import reply_hash
+
+    replies = {r.case_id: reply_hash(reply_of(r)) for r in results if reply_of(r) is not None}
+    out: dict[str, str] = {}
+    for row in rows:               # later lines win: a relabel replaces the old one
+        if row.reply_sha256 is None or replies.get(row.case_id) == row.reply_sha256:
+            out[row.case_id] = row.human_decision
+    return out
+
+
+ReplyKey = tuple  # (case_id, reply_sha256) - one judged reply, whatever trial produced it
+
+
+def judged_replies(results: list[CaseResult], grader: str) -> dict[ReplyKey, str]:
+    """One judge's PASS/FAIL per REPLY, not per case.
+
+    With --trials k a case has k replies, each judged and each labellable on
+    its own. Keying by case_id alone would keep only the last trial and throw
+    the rest of the evidence away.
+    """
+    from evalkit.review import reply_hash
+
+    out: dict[ReplyKey, str] = {}
+    for r in results:
+        reply = reply_of(r)
+        for s in r.scores:
+            if s.grader == grader and not s.abstained and s.passed is not None and reply is not None:
+                out[(r.case_id, reply_hash(reply))] = "PASS" if s.passed else "FAIL"
+    return out
+
+
+def labels_by_reply(rows: list[GoldLabel], results: list[CaseResult]) -> dict[ReplyKey, str]:
+    """Human verdicts per reply present in this run. A pinned label matches
+    its own reply; an unpinned (case-level) one matches every reply of the case."""
+    from evalkit.review import reply_hash
+
+    keys = {(r.case_id, reply_hash(reply_of(r))) for r in results if reply_of(r) is not None}
+    out: dict[ReplyKey, str] = {}
+    for row in rows:
+        for key in keys:
+            if key[0] == row.case_id and row.reply_sha256 in (None, key[1]):
+                out[key] = row.human_decision
+    return out
+
+
+def threshold_pairs(results: list[CaseResult], grader: str,
+                    human: dict[ReplyKey, str]) -> list[tuple[float, str]]:
+    """(judge probability, human verdict) per labelled reply, for suggest_threshold."""
+    from evalkit.review import reply_hash
+
+    pairs = []
+    for r in results:
+        reply = reply_of(r)
+        if reply is None:
+            continue
+        key = (r.case_id, reply_hash(reply))
+        for s in r.scores:
+            if (s.grader == grader and not s.abstained and "threshold" in s.evidence
+                    and key in human):
+                pairs.append((s.value, human[key]))
+    return pairs
+
+
+def suggest_threshold(pairs: list[tuple[float, str]], min_labels: int = 10
+                      ) -> tuple[float, float] | None:
+    """(judge score, human verdict) pairs -> (best threshold, its agreement).
+
+    Tries a cut between every pair of neighbouring scores and keeps the one
+    that agrees with the humans most often. None with fewer than
+    `min_labels` pairs - a threshold fitted to a handful of labels is noise.
+    """
+    if len(pairs) < min_labels:
+        return None
+    values = sorted({v for v, _ in pairs})
+    cuts = [0.0] + [(a + b) / 2 for a, b in zip(values, values[1:])] + [1.0]
+
+    def agree(t: float) -> float:
+        return sum((v >= t) == (h == "PASS") for v, h in pairs) / len(pairs)
+
+    best = max(cuts, key=lambda t: (agree(t), -abs(t - 0.5)))
+    return round(best, 3), agree(best)
+
+
 def load_gold_labels(path: Path) -> dict[str, str]:
     """Human verdicts, one JSON object per line: {"case_id": ..., "human_decision": "PASS"|"FAIL"}
 

@@ -4,5 +4,9 @@
   "criteria": {
     "true": "The reply acknowledges how the customer feels (e.g. an apology or empathetic phrase) alongside the refusal.",
     "false": "The reply refuses correctly but reads as cold, robotic, or purely procedural, with no acknowledgement of the customer's frustration."
-  }
+  },
+  "threshold": 0.5,
+  "borderline_band": 0.15,
+  "repeats": 3,
+  "_threshold": "Pass when jev's probability >= threshold. A first sample within borderline_band of it is re-asked until there are `repeats` samples, and the mean decides. Tune threshold from gold labels, not by feel."
 }

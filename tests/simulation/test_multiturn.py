@@ -142,3 +142,32 @@ async def test_user_side_never_reaches_the_agent():
     await InProcessAdapter("tests.simulation.test_multiturn:history_agent").run(
         case, env, "r1", 0)
     assert SECRET not in repr(SEEN_BY_AGENT)
+
+
+async def test_the_simulated_users_tokens_are_counted_apart_from_the_agents():
+    from evalkit.providers.base import Completion
+    from evalkit.schema.case import UserSim
+    from evalkit.schema.trajectory import Usage
+    from evalkit.simulation import SimulatedUser, get_persona
+
+    class Fake:
+        async def complete(self, messages, *, system="", tools=None, max_tokens=2000):
+            return Completion(text="789 please", usage=Usage(input_tokens=120, output_tokens=5))
+
+    user = SimulatedUser(UserSim(goal="cancel 789"), get_persona(None), Fake())
+    await user.reply([{"role": "assistant", "content": "Which order?"}])
+    await user.reply([{"role": "assistant", "content": "Sure?"}])
+    assert (user.usage.input_tokens, user.usage.output_tokens) == (240, 10)
+
+
+def test_cost_lines_report_agent_user_and_time():
+    from evalkit.cli import cost_lines
+    from evalkit.schema.trajectory import Trajectory, Usage
+
+    t = Trajectory(run_id="r", case_id="c", usage=Usage(input_tokens=1000, output_tokens=50),
+                   user_usage=Usage(input_tokens=200, output_tokens=10))
+    lines = cost_lines([t, t], "inprocess", 75)
+    assert "agent tokens: 2,000 in / 100 out over 2 trial(s)" in lines[0]
+    assert "simulated user tokens: 400 in / 20 out" in lines[1]
+    assert "1m 15s" in lines[2]
+    assert "scripted" in cost_lines([t], "echo", 3)[0]

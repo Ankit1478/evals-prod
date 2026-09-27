@@ -62,6 +62,15 @@ class EchoAdapter:
                           content=case.input.messages[-1].content))
         i += 1
 
+        # A multi-turn case's scripted back-and-forth, from the SCRIPT (never
+        # from case.user_sim, which is the harness's private side). Recorded so
+        # the transcript a judge reads matches the reply being judged.
+        for turn in plan.get("conversation", []):
+            steps.append(Step(index=i, content=turn["content"],
+                              type=StepType.USER if turn["role"] == "user"
+                              else StepType.ASSISTANT))
+            i += 1
+
         for n, action in enumerate(plan.get("actions", [])):
             args = action.get("args", {})
 

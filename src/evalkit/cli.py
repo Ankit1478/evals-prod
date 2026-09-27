@@ -17,6 +17,7 @@ from evalkit.adapters.echo import EchoAdapter
 from evalkit.adapters.inprocess import InProcessAdapter
 from evalkit.graders.composite import grade_all
 from evalkit.graders.judge import JevJudge, augment_with_judge
+from evalkit.graders.judge_cache import CachedJudge, cache_enabled
 from evalkit.graders.llm_as_judge import LLMAsJudge, judge_spec, self_judging
 from evalkit.report import write_html_report
 from evalkit.review import (REVIEWS_FILE, append_review, apply_reviews, disputed,
@@ -122,6 +123,8 @@ def run(
     if any(c.expected.rubric_id for c in cases):
         rubric_dir = suite_dir / "rubrics"
         judges = [JevJudge(rubric_dir=rubric_dir), LLMAsJudge(rubric_dir=rubric_dir)]
+        if cache_enabled():
+            judges = [CachedJudge(j) for j in judges]
 
         async def _apply_judges() -> list:
             out = []
@@ -132,6 +135,19 @@ def run(
             return out
 
         results = asyncio.run(_apply_judges())
+        # Paid this run only: a cached verdict carries its old usage, not a new bill.
+        judge_tokens = [s.evidence["usage"] for r in results for s in r.scores
+                        if isinstance(s.evidence.get("usage"), dict)
+                        and not s.evidence.get("cached")]
+        if judge_tokens:
+            tin = sum(u["input_tokens"] for u in judge_tokens)
+            tout = sum(u["output_tokens"] for u in judge_tokens)
+            console.print(f"[dim]judge tokens: {tin:,} in / {tout:,} out "
+                          f"over {len(judge_tokens)} judged case(s)[/dim]")
+        hits = sum(getattr(j, "hits", 0) for j in judges)
+        if hits:
+            console.print(f"[dim]judge cache: {hits} verdict(s) reused, not re-paid "
+                          f"(EVAL_JUDGE_CACHE=0 to turn off)[/dim]")
 
     # Save the verdicts next to the recordings, so `ef gate` can read them
     # later without re-running (and re-paying for) the agent.
@@ -343,6 +359,7 @@ def review(
     note: str = typer.Option("", help="why - read by whoever reviews after you"),
     run: str | None = typer.Option(None, help="run id (default: the latest run)"),
     suite: str = typer.Option("suites/support-agent", help="suite holding reviews.jsonl"),
+    trial: int = typer.Option(0, help="which trial, when the run used --trials"),
 ):
     """Decide the cases the judges disagreed on.
 
@@ -358,22 +375,23 @@ def review(
     path = Path(suite) / REVIEWS_FILE
     results, _ = load_results(run_dir)
     results = apply_reviews(results, load_reviews(path))
-    pending = {r.case_id: r for r in results if r.needs_review}
+    pending = {(r.case_id, r.trial_index): r for r in results if r.needs_review}
 
     if case_id is None:
         console.print(f"\n[bold]{len(pending)}[/bold] case(s) waiting on a human  "
                       f"[dim]run {run_dir.name}[/dim]\n")
         for r in pending.values():
             ev = disputed(r).evidence
-            console.print(f"[yellow]{r.case_id}[/yellow]  judges: {ev.get('per_model')}")
+            console.print(f"[yellow]{r.case_id}[/yellow] [dim]trial {r.trial_index}[/dim]  "
+                          f"judges: {ev.get('per_model')}")
             console.print(f"  reply: {ev.get('reply')}\n")
         if pending:
             console.print("[dim]read one: ef trace <case>  ·  decide: "
                           "ef review <case> --decision pass|fail --note \"why\"[/dim]\n")
         return
 
-    if case_id not in pending:
-        console.print(f"[red]{case_id} is not waiting on a review in run "
+    if (case_id, trial) not in pending:
+        console.print(f"[red]{case_id} (trial {trial}) is not waiting on a review in run "
                       f"{run_dir.name}[/red]")
         raise typer.Exit(1)
     if (decision or "").lower() not in {"pass", "fail"}:
@@ -384,10 +402,80 @@ def review(
     if not reviewer:
         raise typer.BadParameter("--reviewer is required (no git user.name set)")
 
-    rv = new_review(pending[case_id], decision, reviewer, note)
+    rv = new_review(pending[(case_id, trial)], decision, reviewer, note)
     append_review(path, rv)
     console.print(f"[green]recorded[/green]  {case_id}: {rv.human_decision} "
                   f"by {rv.reviewer}  [dim]-> {path}[/dim]")
+
+
+@app.command()
+def label(
+    case_id: str | None = typer.Argument(None, help="the case to label (omit to list)"),
+    decision: str | None = typer.Option(None, "--decision", help="pass or fail"),
+    reviewer: str | None = typer.Option(None, help="your name (default: git user.name)"),
+    note: str = typer.Option("", help="why - the reason is what makes a label reusable"),
+    run: str | None = typer.Option(None, help="run id (default: the latest run)"),
+    suite: str = typer.Option("suites/support-agent", help="suite holding gold_labels.jsonl"),
+    dataset: str = typer.Option("regression", help="cases file the run used"),
+    trial: int = typer.Option(0, help="which trial, when the run used --trials"),
+):
+    """Write gold labels: YOUR verdict on judged replies. They are what
+    `ef judge-check` measures the judges against.
+
+    ef label                                    list judged replies, labelled or not
+    ef label <case> --decision pass --note ...  record your verdict
+
+    The judges' own verdicts are deliberately NOT shown: a human who has
+    seen the judge's answer tends to agree with it, and the label would
+    measure nothing. Each label is pinned to the exact reply you read.
+    """
+    import subprocess
+
+    from evalkit.judgeops import GoldLabel, labels_by_reply, load_gold_label_rows, reply_of
+    from evalkit.review import reply_hash
+
+    run_dir = Path("runs") / run if run else _latest_run(Path("runs"))
+    path = Path(suite) / "gold_labels.jsonl"
+    results, _ = load_results(run_dir)
+    judged = {(r.case_id, r.trial_index): r for r in results if reply_of(r) is not None}
+    labelled = labels_by_reply(load_gold_label_rows(path), list(judged.values()))
+    done = {k: labelled[(k[0], reply_hash(reply_of(r)))] for k, r in judged.items()
+            if (k[0], reply_hash(reply_of(r))) in labelled}
+
+    if case_id is None:
+        asks = {c.id: c.input.messages[0].content
+                for c in load_cases(Path(suite) / "cases" / f"{dataset}.jsonl")}
+        console.print(f"\n[bold]{len(done)}[/bold]/{len(judged)} judged replies labelled "
+                      f"in run {run_dir.name}  [dim](aim for 30+ across runs)[/dim]\n")
+        for (cid, t), r in judged.items():
+            mark = f"[green]{done[(cid, t)]}[/green]" if (cid, t) in done else "[yellow]todo[/yellow]"
+            console.print(f"{mark}  [bold]{cid}[/bold] [dim]trial {t}[/dim]")
+            console.print(f"  customer: {asks.get(cid, '?')}")
+            console.print(f"  reply:    {reply_of(r)}\n")
+        console.print("[dim]full context: ef trace <case>  ·  label: "
+                      "ef label <case> --decision pass|fail --note \"why\"[/dim]\n")
+        return
+
+    if (case_id, trial) not in judged:
+        console.print(f"[red]{case_id} (trial {trial}) has no judged reply in run "
+                      f"{run_dir.name}[/red]")
+        raise typer.Exit(1)
+    if (decision or "").lower() not in {"pass", "fail"}:
+        raise typer.BadParameter("--decision must be pass or fail")
+    if not reviewer:
+        reviewer = subprocess.run(["git", "config", "user.name"], capture_output=True,
+                                  text=True).stdout.strip()
+    if not reviewer:
+        raise typer.BadParameter("--reviewer is required (no git user.name set)")
+
+    row = GoldLabel(case_id=case_id, human_decision=decision.upper(),
+                    reply_sha256=reply_hash(reply_of(judged[(case_id, trial)])),
+                    reviewer=reviewer, note=note,
+                    labeled_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    with path.open("a") as f:
+        f.write(row.model_dump_json() + "\n")
+    console.print(f"[green]labelled[/green]  {case_id}: {row.human_decision} "
+                  f"by {reviewer}  [dim]-> {path}[/dim]")
 
 
 @app.command()
@@ -456,7 +544,9 @@ def judge_check(
     A judge that scores your cases is only half the system - this is the
     half that says whether those scores can be believed.
     """
-    from evalkit.judgeops import (agreement, judge_decisions, load_gold_labels)
+    from evalkit.judgeops import (agreement, judged_replies, labels_by_reply,
+                                  load_gold_label_rows, suggest_threshold,
+                                  threshold_pairs)
     from evalkit.stats.gate import check_rubric_approval
 
     load_dotenv()
@@ -471,30 +561,71 @@ def judge_check(
     mark = "[green]PASS[/green]" if ok else "[red]FAIL[/red]"
     console.print(f"  {mark}  [bold]rubric approval[/bold]  {detail}")
 
-    # --- agreement with humans --------------------------------------------
+    # --- agreement with humans, per judge ---------------------------------
     gold_path = suite_dir / "gold_labels.jsonl"
-    judged = judge_decisions(results)
-    if not judged:
+    rows = load_gold_label_rows(gold_path)
+    human = labels_by_reply(rows, results)
+    graders = sorted({sc.grader for r in results for sc in r.scores
+                      if sc.grader.startswith("judge.") and not sc.abstained})
+    if not graders:
         console.print("  [yellow]SKIP[/yellow]  [bold]agreement[/bold]  "
                       "no judge produced a verdict in this run "
                       "(every judge abstained)")
-    elif not gold_path.exists():
+    elif not rows:
         console.print(f"  [yellow]SKIP[/yellow]  [bold]agreement[/bold]  "
-                      f"no human labels at {gold_path} - a judge cannot be "
-                      f"validated without them")
-    else:
-        rep = agreement(judged, load_gold_labels(gold_path))
+                      f"no human labels at {gold_path} - write some with "
+                      f"`ef label` or `ef ui` (aim for 30+)")
+    for grader in graders if rows else []:
+        rep = agreement(judged_replies(results, grader), human)
         if rep.kappa is None:
-            console.print("  [yellow]SKIP[/yellow]  [bold]agreement[/bold]  "
-                          f"{rep.cases} shared case(s) - too few, or all one verdict")
+            console.print(f"  [yellow]SKIP[/yellow]  [bold]{grader}[/bold]  "
+                          f"{rep.cases} labelled repl(ies) in this run - too few, "
+                          f"or all one verdict")
         else:
             m = "[green]PASS[/green]" if rep.meets_floor else "[red]FAIL[/red]"
-            console.print(f"  {m}  [bold]agreement[/bold]  kappa {rep.kappa:.2f} "
+            console.print(f"  {m}  [bold]{grader}[/bold]  kappa {rep.kappa:.2f} "
                           f"(floor {rep.floor:.2f})  ·  agreed {rep.agreed}/{rep.cases} "
                           f"({rep.agreement_rate:.0%})")
+        # A probability judge (jev) has a pass line to tune: fit it to the humans.
+        pairs = threshold_pairs(results, grader, human)
+        if pairs:
+            fit = suggest_threshold(pairs)
+            console.print(f"        [dim]pass line: {len(pairs)} labelled score(s); "
+                          + (f"best threshold {fit[0]:g} agrees {fit[1]:.0%} - set "
+                             f"\"threshold\" in the rubric" if fit else
+                             "need 10+ to suggest a threshold") + "[/dim]")
 
     console.print("\n[dim]kappa, not raw agreement: if 90% of cases pass, a judge "
                   "that always says PASS looks 90% right while knowing nothing.[/dim]\n")
+
+
+@app.command()
+def ui(
+    suite: str = typer.Option("suites/support-agent", help="suite holding cases, reviews and labels"),
+    port: int = typer.Option(8765, help="port to serve on"),
+    host: str = typer.Option("127.0.0.1", help="interface to bind - keep it local unless "
+                                               "something in front adds auth"),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="open the browser"),
+):
+    """Open the dashboard: runs, conversations, verdicts, review, labels, judges."""
+    import webbrowser
+
+    from evalkit.ui.server import serve
+
+    server = serve(Path("runs"), Path(suite), host=host, port=port)
+    url = f"http://{host}:{port}/"
+    console.print(f"[bold]dashboard[/bold]  {url}  [dim](Ctrl+C to stop)[/dim]")
+    if host not in ("127.0.0.1", "localhost"):
+        console.print("[yellow]warning:[/yellow] bound beyond localhost - anyone who can "
+                      "reach this port can read transcripts and write labels")
+    if open_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 
 @app.command("judge-attack")

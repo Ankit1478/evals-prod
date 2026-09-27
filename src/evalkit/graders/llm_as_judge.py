@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from evalkit.graders.base import score
+from evalkit.graders.judge_input import conversation, tool_context
 from evalkit.schema.case import Case
 from evalkit.schema.score import Score, Severity
 from evalkit.schema.trajectory import Trajectory
@@ -36,6 +37,12 @@ JUDGE_KEY = "llm_as_judge"
 # our 0..1 `value` has to subtract that floor, or a worst-possible 1.0 would
 # read as 20% instead of 0%.
 _MIN_SCORE, _MAX_SCORE = 1.0, 5.0
+
+
+def _usage(*usages: Any) -> dict:
+    """Judge tokens, summed over every model call - a judge costs money too."""
+    return {"input_tokens": sum(getattr(u, "prompt_tokens", None) or 0 for u in usages),
+            "output_tokens": sum(getattr(u, "completion_tokens", None) or 0 for u in usages)}
 
 
 def _normalise(weighted_score: float) -> float:
@@ -258,6 +265,21 @@ class LLMAsJudge:
                                  f"judge '{rubric.get('judge')}', not {JUDGE_KEY}")
         return True, rubric, ""
 
+    def cache_key(self, case: Case, traj: Trajectory) -> dict | None:
+        """Everything that decides this judge's answer (see graders/judge_cache.py)."""
+        applies, rubric, _ = self._applies_to(case)
+        if not applies:
+            return None
+        from llm_judge.rubric import ACTIVE_RUBRIC
+        models = (["azure", os.environ.get("AZURE_OPENAI_DEPLOYMENT", "")] if _legacy_azure()
+                  else [judge_spec(0)] + ([judge_spec(1)] if rubric.get("two_model") else []))
+        return {"case": case.id, "rubric": rubric,
+                "upstream_rubric": f"{ACTIVE_RUBRIC.name}@{ACTIVE_RUBRIC.version}",
+                "models": models, "question": conversation(case, traj),
+                "context": tool_context(traj),
+                "reference": case.expected.reference_answer,
+                "reply": (traj.final_output or "").strip()}
+
     async def grade(self, case: Case, traj: Trajectory) -> Score:
         applies, _rubric, why = self._applies_to(case)
         if not applies:
@@ -272,9 +294,9 @@ class LLMAsJudge:
                                                parse_judge_response)
         from llm_judge.settings import SettingsError
 
-        question = "\n".join(m.content for m in case.input.messages
-                             if m.role == "user").strip()
+        question = conversation(case, traj)
         answer = (traj.final_output or "").strip()
+        reference = case.expected.reference_answer
         if not question or not answer:
             return self._abstain(
                 {"rubric_id": case.expected.rubric_id},
@@ -284,12 +306,20 @@ class LLMAsJudge:
         try:
             eval_input = EvaluationInput(
                 case_id=case.id,
-                mode=EvaluationMode.SCORE,
-                # We have no gold answer per case, so the judge must grade
-                # the answer on its own merits rather than against one.
-                reference_policy=ReferencePolicy.REFERENCE_FREE,
+                # "mode": "binary" in the rubric asks for a plain PASS/FAIL
+                # - steadier than a 1-5 score when the question is yes/no.
+                mode=(EvaluationMode.BINARY if _rubric.get("mode") == "binary"
+                      else EvaluationMode.SCORE),
+                # With a reference in the case the judge compares against
+                # it; without one it can only grade on its own opinion.
+                reference_policy=(ReferencePolicy.REQUIRED if reference
+                                  else ReferencePolicy.REFERENCE_FREE),
+                reference_answer=reference,
                 question=question,
                 candidate_answer=answer,
+                # The facts the agent had, so a claim can be checked
+                # against them instead of guessed at.
+                context=tool_context(traj),
             )
             prompt = build_judge_prompt(eval_input)
             settings, sdk_client = judge_backend()
@@ -330,14 +360,29 @@ class LLMAsJudge:
                                  "shape - abstaining, not guessing")
 
         passed = result.decision is Decision.PASS
+        if eval_input.mode is EvaluationMode.BINARY:
+            return score(self, 1.0 if passed else 0.0, passed,
+                        {"rubric_id": case.expected.rubric_id,
+                         "judges": 1, "mode": "binary",
+                         "model": settings.deployment,
+                         "grounded_in_tools": eval_input.context is not None,
+                         "reference": reference is not None,
+                         "evidence": result.evidence,
+                         "usage": _usage(raw.usage),
+                         "injection_findings": injection,
+                         "reply": answer},
+                        f"answer quality {result.decision.value.lower()} (binary)")
         weighted = float(result.weighted_score)
         return score(self, _normalise(weighted), passed,
                     {"rubric_id": case.expected.rubric_id,
                      "judges": 1,
                      "model": settings.deployment,
+                     "grounded_in_tools": eval_input.context is not None,
+                     "reference": reference is not None,
                      "weighted_score": weighted,
                      "scores": {s.criterion.value: s.score for s in result.scores},
                      "summary": result.summary,
+                     "usage": _usage(raw.usage),
                      "injection_findings": injection,
                      "reply": answer},
                     f"answer quality {weighted:.2f}/5 "
@@ -370,12 +415,15 @@ class LLMAsJudge:
                   {JudgeModel.TERRA: judge_models()[0], JudgeModel.LUNA: judge_models()[1]})
         ev = {"rubric_id": case.expected.rubric_id,
               "judges": 2,
+              "grounded_in_tools": eval_input.context is not None,
+              "reference": eval_input.reference_answer is not None,
               "agreement": result.agreement,
               "requires_human_review": result.requires_human_review,
               "per_model": {actual.get(j.model, j.model.value): (j.result.decision.value
                                             if hasattr(j.result, "decision") else None)
                             for j in result.judgments},
               "average_weighted_score": result.average_weighted_score,
+              "usage": _usage(*(j.usage for j in result.judgments)),
               "injection_findings": injection,
               "reply": answer}
 
@@ -386,8 +434,12 @@ class LLMAsJudge:
             return self._abstain(ev, f"{names} disagreed - routing to "
                                      f"human review instead of averaging")
 
-        weighted = float(result.average_weighted_score or 0.0)
         passed = str(result.aggregate_decision).upper().endswith("PASS")
+        if result.average_weighted_score is None:          # binary: a vote, no score
+            return score(self, 1.0 if passed else 0.0, passed, {**ev, "mode": "binary"},
+                        f"answer quality {'pass' if passed else 'fail'} "
+                        f"({names} agreed, binary)")
+        weighted = float(result.average_weighted_score)
         return score(self, _normalise(weighted), passed, ev,
                     f"answer quality {weighted:.2f}/5 "
                     f"({names} agreed)")

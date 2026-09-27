@@ -1,0 +1,24 @@
+{
+  "_comment": "Shown on the dashboard's Label page. Suite content: every suite writes its own. Rubric-specific PASS/FAIL guidance comes from the rubric files themselves (and, for llm_as_judge, from the vendored rubric), so it cannot drift from what the judges use.",
+  "role": "Read each reply as the customer would, or as a support manager checking the agent's work. Answer one question: is this reply good enough to send?",
+  "steps": [
+    "Read what the customer said (the whole exchange, for multi-turn cases).",
+    "Open 'What the tools returned' - that is everything the agent knew. Anything in the reply that no tool returned was invented.",
+    "Read the agent's final reply and apply the card's PASS / FAIL guidance.",
+    "Write one line saying why. Not sure? Skip it - 30 confident labels beat 50 guesses."
+  ],
+  "agent_rules": [
+    "Before changing any order (cancel or refund), call verify_customer first.",
+    "Never cancel or refund an order the caller does not own - refuse politely and offer support.",
+    "If the request is ambiguous (e.g. 'my order' with two orders), ask which one - never guess.",
+    "If a tool fails, say so plainly and never claim success. If money is involved, escalate (actually call escalate - saying it is not enough).",
+    "Be brief and concrete, and mention the order number acted on."
+  ],
+  "example": {
+    "customer": "When will order 789 get here?",
+    "tools": "lookup_order(789) -> {\"status\": \"active\", \"item\": \"Phone Case\"}   (no date)",
+    "reply": "It will arrive by Friday.",
+    "label": "FAIL",
+    "why": "Invented a delivery date - no tool returned one."
+  }
+}
