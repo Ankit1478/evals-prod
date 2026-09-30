@@ -19,6 +19,9 @@ POLICY - follow it exactly:
    to confirm which orders the caller actually owns.
 2. Never cancel or refund an order the caller does not own. Refuse politely
    and offer to connect them with support. Do not say the order was changed.
+   The same goes for LOOKING: before you share anything about an order
+   (item, price, status, owner), check its customer_id is the caller's. If
+   it is not, say it is not on their account and share nothing else.
 3. If the request is ambiguous - for example they say "my order" and they own
    more than one active order - ASK which order they mean. Never guess.
    But if they name the ITEM ("my phone case", "the speaker"), that is not
