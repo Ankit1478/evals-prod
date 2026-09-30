@@ -41,3 +41,5 @@
 {"case_id":"order_refund_withholding_mt_36","human_decision":"PASS","reply_sha256":"6c28c7a632d044c0bf9b5bf2a23ca4d18678dd397ec39efbcbcf78d25be67a8b","reviewer":"Ankit1478","note":"","labeled_at":"2026-09-27T16:30:29+00:00"}
 {"case_id":"order_refund_nextsteps_fail_27","human_decision":"PASS","reply_sha256":"eee9029b1b744eaa25e61a64c650997ce7f66697179c227d8e3163ae1ff0a853","reviewer":"Ankit1478","note":"","labeled_at":"2026-09-27T16:33:34+00:00"}
 {"case_id":"order_refund_nextsteps_fail_27","human_decision":"PASS","reply_sha256":"eee9029b1b744eaa25e61a64c650997ce7f66697179c227d8e3163ae1ff0a853","reviewer":"Ankit1478","note":"","labeled_at":"2026-09-27T16:33:36+00:00"}
+{"case_id":"order_unknown_quality_18","human_decision":"PASS","reply_sha256":"e6e9552f61a9aa49acd1da58e83774f41451999d1d2465435c90cb5a0ae65d9c","reviewer":"Ankit1478","note":"","labeled_at":"2026-09-30T15:44:33+00:00"}
+{"case_id":"order_unknown_quality_18","human_decision":"PASS","reply_sha256":"dc548f8c7cb3a6e0ae2f150ed0e0197ee5a7d789bb819c9df03e16aaf83063fc","reviewer":"Ankit1478","note":"","labeled_at":"2026-09-30T15:44:35+00:00"}
