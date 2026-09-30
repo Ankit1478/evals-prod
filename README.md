@@ -3,13 +3,15 @@
 A harness that measures whether an AI agent did the right thing — not whether it
 sounded like it did.
 
-**Status:** Boxes 1–8 built and working (cases, runner, trajectory, graders,
-gate, environment, statistics, adapters). 67 tests passing. Real agent (OpenAI,
-in-process adapter) scores 10/10 on the support-agent suite. Boxes 9–10
-(ops/CI/judge/safety, packaging) not started. See §17 and §24 below for what
-that maps to.
+**Status:** Weeks 1, 2, 3 and 5 done; weeks 4 and 6–10 partial (see §17 and
+§24). The real agent runs in-process on any provider chosen in `.env`
+(OpenAI, Azure, Anthropic, Bedrock, Foundry) against 40 support-agent cases.
+Last real run (2026-09-27, 2 trials): 65/80 trials passed, gate BLOCKED on 3
+critical failures. Judges: the vendored LLM_AS_JUDGE two-model panel plus jev,
+with human review, gold labels and a local dashboard (`ef ui`). 402 tests, 401
+passing (one fails: it imports `cost_lines`, which `cli.py` does not have yet).
 **Owner:** Ankit Raj
-**Last updated:** 2026-09-11
+**Last updated:** 2026-09-27
 
 ---
 
@@ -1090,8 +1092,8 @@ adapter, writes `runs/<id>/` with a valid manifest, and prints a table.
 `tests/test_import_direction.py` passes.
 
 *Built as: `ef run suites/support-agent`, console table via Rich in
-`cli.py`. `store/jsonl.py` and `ef show` not split into their own module yet —
-the runner writes `runs/<id>/` directly and `ef trace` covers inspection.*
+`cli.py`, `store/jsonl.py` (`JsonlStore`) writing `runs/<id>/`. `ef show` was
+not built; `ef runs`, `ef trace` and the `ef ui` dashboard cover inspection.*
 
 ### ✅ Week 2 — Environment + state grading — DONE
 
@@ -1105,7 +1107,7 @@ passes: trial 2 cannot see trial 1's mutations.
 *Verified: `tests/graders/test_state.py::test_catches_collateral_damage`,
 `tests/env/test_reset.py`, `tests/harness/test_isolation.py`.*
 
-### ✅ Week 3 — Tool graders — DONE (flow.py not built)
+### ✅ Week 3 — Tool graders — DONE
 
 Build: `graders/tools.py` (selection, arguments, execution);
 `graders/output.py`; `graders/flow.py`; `graders/composite.py` with severity
@@ -1115,9 +1117,12 @@ resolution.
 malformed, near-miss). A syntactically valid order id belonging to another
 customer is a critical failure.
 
-*Built: tools.py, output.py, composite.py, all with 4-fixture coverage
-(32 tests). `graders/flow.py` (step budget, loop detection) not started —
-no case currently needs it.*
+*Built: tools.py, output.py, composite.py, all with 4-fixture coverage.
+`graders/flow.py` added later: `flow.step_budget`, `flow.loop_detection`,
+`flow.recovery_after_failure`. `output.grounded` (every number and status in a
+reply must come from a tool or the customer) added 2026-09-27. Domain facts
+(ownership, success/status words) live in each suite's `grading.json`, not in
+grader code.*
 
 ### 🔶 Week 4 — HTTP adapter + first real agent — PARTIAL
 
@@ -1127,9 +1132,10 @@ contract; `ef doctor`; leakage test.
 **Accept:** a real agent runs end-to-end over HTTP and produces a graded run.
 `tests/adapters/test_leakage.py` proves `expected` never leaves the harness.
 
-*Built: `adapters/inprocess.py` + a real OpenAI agent (`agent/support_agent.py`),
-10/10 on the support-agent suite. Leakage test passes.
-`adapters/http.py` and `ef doctor` not built — no HTTP-based agent yet.*
+*Built: `adapters/inprocess.py` + a real agent (`agent/support_agent.py` on
+the shared loop in `agent/tool_agent.py`), any provider via `AGENT_MODEL`.
+Leakage test passes. `adapters/http.py` and `ef doctor` not built — no
+HTTP-based agent yet.*
 
 ### ✅ Week 5 — Trials, pass^k, statistics — DONE (slices via kind, not full tag slicing)
 
@@ -1144,7 +1150,8 @@ known-value checks.
 *Built: `--trials k`, `stats/passk.py`, `stats/bootstrap.py` (Wilson +
 percentile bootstrap), flaky detection in `stats/summary.py`. Slicing is by
 case `kind` (regression/adversarial/capability) only — full per-tag
-`stats/slices.py` not built.*
+`stats/slices.py` not built. Trials run one after another: no seeds and no
+bounded concurrency yet.*
 
 **Reliability statistics, in simple terms.** The runner executes each case
 multiple times (`src/evalkit/harness/runner.py`). `pass@1` shows the chance of
@@ -1154,8 +1161,9 @@ and bootstrap intervals estimate how certain the reported score is
 (`src/evalkit/stats/bootstrap.py`). A case that passes some trials and fails
 others is marked flaky (`src/evalkit/stats/summary.py`). The CLI displays these
 numbers in `src/evalkit/cli.py`, and the release gate uses them in
-`src/evalkit/stats/gate.py`. The percentile-bootstrap function exists but is
-not yet connected to the CLI report or gate; those currently use Wilson.
+`src/evalkit/stats/gate.py`. The report and gate use Wilson; `ef diff` uses
+its own paired bootstrap (`stats/compare.py`). `percentile_bootstrap` itself is
+still not called from the CLI.
 
 ### 🔶 Week 6 — Comparison and the gate — PARTIAL
 
@@ -1165,12 +1173,16 @@ ordered stages; exit codes; `ef diff`, `ef gate`.
 **Accept:** introduce a known regression → gate exits 2 and names the cause.
 Kill the eval process mid-run → gate exits 3, never 0.
 
-*Built: `stats/gate.py` with 3 of 5 stages (VALIDITY, CRITICAL, THRESHOLD on
-pass^k), exit codes 0/2/3, `ef gate`. Verified in
-`tests/stats/test_gate.py`. Not built: `stats/compare.py` (paired bootstrap
-A/B), `ef diff`, and gate stages BUDGET/HELDOUT.*
+*Built: `stats/compare.py` (paired bootstrap per case kind, marks each
+change significant or noise) and `ef diff`. `stats/gate.py` stages: 0
+VALIDITY (crashed/timed-out trials), 0b RUBRIC (approval, opt-in), 1
+CRITICAL, 1b REVIEW (split judge verdicts awaiting a human), 2 THRESHOLD
+(pass^k per kind, optional Wilson lower bound). Exit codes 0/2/3/4. Verified
+in `tests/stats/test_gate.py`. Not built: RELATIVE (baseline comparison inside
+`ef gate`, `--baseline`), BUDGET, HELDOUT; VALIDITY does not yet check the
+judge κ floor, a dirty tree or dataset hashes.*
 
-### ⬜ Week 7 — CI/CD + HTML report — NOT STARTED
+### 🔶 Week 7 — CI/CD + HTML report — PARTIAL
 
 Build: `report/html.py`, `report/junit.py`; `.github/workflows/evals-pr.yml`
 (smoke subset, ~5 min) and `evals-nightly.yml` (full, 5 trials, judge on);
@@ -1179,7 +1191,15 @@ artifact upload; PR comment with the diff table.
 **Accept:** a PR containing a deliberately bad prompt change is **blocked**,
 and the PR comment states which cases and which grader.
 
-### ⬜ Week 8 — Judge integration — NOT STARTED
+*Built: HTML report (`src/evalkit/report.py`, written to
+`runs/<id>/report.html`, rebuilt by `ef report`); one workflow,
+`.github/workflows/eval.yml`, on every PR and push to main: pytest, the suite
+on the echo adapter, then `ef gate`. Not built: `report/junit.py`, the
+smoke/nightly split, artifact upload, the PR comment. The job is red today:
+one test imports the missing `cli.cost_lines`, and the echo script's
+deliberate bugs make `ef gate` exit 2.*
+
+### 🔶 Week 8 — Judge integration — PARTIAL
 
 Build: `providers/`, `graders/judge.py` wrapping LLM_AS_JUDGE; κ tracking
 against the gold set; abstention handling; judge cost accounting separate from
@@ -1188,6 +1208,18 @@ agent cost.
 **Accept:** judge runs as one grader among many; κ ≥ 0.70 against the existing
 human-labelled set; abstentions are excluded from the denominator and reported;
 lowering κ below the floor blocks the gate at the validity stage.
+
+*Built: `providers/` (OpenAI/Azure, Anthropic/Bedrock/Foundry);
+`graders/llm_as_judge.py` wrapping the vendored LLM_AS_JUDGE as a two-model
+panel (split verdicts go to human review, gate exit 4); `graders/judge.py`
+(jev, rubric thresholds and re-asks near the line); judge grounding in tool
+results, reference answers, a verdict cache; self-judging blocked before a
+run. Abstentions are excluded from the verdict. Gold labels (`ef label`, the
+dashboard) and `ef judge-check` measure κ per judge against them: on
+2026-09-27, answer_quality κ 1.00 (16 labels) and jev κ 0.81 (13 labels) —
+above the 0.70 floor, but on too few labels to trust yet. Judge tokens are
+printed per run, apart from the agent. Not built: the κ floor inside the gate,
+cost in money rather than tokens.*
 
 ### 🔶 Week 9 — Adversarial + faults + multi-turn — PARTIAL
 
@@ -1202,11 +1234,16 @@ recovery behaviour, not just the final message.
 faults.json` (tool-fails-on-purpose, e.g. `order_refund_toolfail_10`'s
 `refund_order` returning HTTP 500). Real bug caught this way: the agent said
 "I'll escalate" without calling `escalate` — fixed via the prompt.
-Not built: `env/faults.py` as its own module (timeout/permission-denied/
-rate-limit beyond what faults.json covers), `graders/safety.py`,
-`simulation/user.py`/personas.*
+`graders/safety.py` (`no_sensitive_leak`, `no_unauthorized_disclosure`) and
+`graders/injection.py` (`judge_injection`: the reply must not address its
+grader); 8 adversarial cases; `simulation/user.py` with 5 personas and 6
+multi-turn cases; `flow.recovery_after_failure` grades what the agent did
+after a tool failed. Not built: `env/faults.py` as its own module (faults are
+error strings today - no real timeout, permission-denied or rate-limit), an
+injection planted in a TOOL RESULT with its benign twin, explicit
+adversarial/benign pairs.*
 
-### ⬜ Week 10 — Curation loop + hardening — NOT STARTED
+### 🔶 Week 10 — Curation loop + hardening — STARTED
 
 Build: `ef cases add-from-trace`, `ef cases validate/stats/freeze`; dataset
 versioning with content hashes and `added_at`; resume; rate-limit handling;
@@ -1215,6 +1252,12 @@ docs for adding a new suite.
 **Accept:** a production failure trace becomes a reviewed regression case in
 under 10 minutes, and the next run protects against it. A second engineer adds
 a new suite touching nothing in `src/`.
+
+*Built: `ef lint` (duplicate ids, contradictory answer keys, missing rubric
+files, keys that check nothing or leave the answer to the judge alone; `ef
+run` refuses to start on a lint error); `added_at` on every case. Not built:
+`ef cases add-from-trace/stats/freeze`, content hashes, `--resume`,
+rate-limit handling, docs for adding a suite.*
 
 ### Ongoing from Week 2 onward
 
@@ -1379,30 +1422,38 @@ Portfolio topics 219–225 are satisfied by this repository itself.
 Phase 1 is complete when all of these are true:
 
 - [x] `ef run` executes a real agent and writes a complete reproducible run
-      directory — *done via `--adapter inprocess` (real OpenAI agent), not yet
-      HTTP; 10 cases not yet ≥50*
+      directory — *done via `--adapter inprocess` (any provider from
+      `.env`), not yet HTTP; 40 cases, not yet ≥50*
 - [x] Every trial is isolated; the isolation test passes in CI — *passes
       locally (`tests/harness/test_isolation.py`, `tests/env/test_reset.py`);
-      no CI configured yet*
+      `.github/workflows/eval.yml` runs it, but that job is red today (see
+      Week 7)*
 - [x] ≥80% of assertions are deterministic; the judge is one grader among
-      many — *100% deterministic right now: no judge grader exists yet*
+      many — *14 rule-based graders run on every case; the two judges run
+      only on the 18 cases with a rubric*
 - [x] Every grader has known-pass, known-fail, malformed and near-miss
-      fixtures — *67 tests across 7 graders*
+      fixtures — *402 tests; the newest graders (`output.grounded`, safety
+      v2) have pass/fail/near-miss fixtures, not all have a malformed one*
 - [x] pass@1 and pass^5 are reported with 95% CIs, overall and per slice —
       *reported per case-kind slice; pass^k at whatever `--trials` is set to,
       not fixed at 5; no per-tag slicing yet*
-- [ ] `ef diff` runs a paired bootstrap and names significant changes only —
-      *not built*
+- [x] `ef diff` runs a paired bootstrap and names significant changes only —
+      *per case kind (`stats/compare.py`)*
 - [x] `ef gate` exits 0/2/3 correctly, including on a crashed run — *verified
-      by simulating a crashed trial and by `tests/stats/test_gate.py`*
+      by simulating a crashed trial and by `tests/stats/test_gate.py`; exit 4
+      added for cases awaiting human review*
 - [ ] A deliberately bad change is blocked by CI, with the cause named in the
-      PR — *not built, no CI yet*
+      PR — *the workflow runs `ef gate`, but on the echo adapter only and with
+      no PR comment*
 - [ ] A production failure becomes a protected regression case in < 10
-      minutes — *no production traffic yet; loop untested*
+      minutes — *no production traffic yet; `ef cases add-from-trace` not
+      built*
 - [ ] Judge κ ≥ 0.70 against the human gold set, enforced at the gate —
-      *no judge built yet*
+      *κ is measured by `ef judge-check` (1.00 and 0.81 on 16 and 13 labels,
+      2026-09-27) but not enforced by `ef gate`*
 - [ ] A second engineer adds a new suite without touching `src/` — *untested
-      with a second person*
+      with a second person; domain facts now live in the suite's
+      `grading.json`, which is what makes it possible*
 - [x] `src/evalkit` contains zero imports from `suites/` — *enforced by
       `tests/test_import_direction.py`*
 - [ ] Each suite README states what it proves **and what it does not prove**

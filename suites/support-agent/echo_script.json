@@ -37,7 +37,7 @@
         }
       }
     ],
-    "say": "Order 123 (Wireless Headphones) is currently active and on its way."
+    "say": "Order 123 (Wireless Headphones) is currently active."
   },
   "order_refund_happy_03": {
     "actions": [
@@ -157,7 +157,7 @@
         }
       }
     ],
-    "say": "Happy to help. I can see two active orders on your account: 123 (Wireless Headphones) and 789 (Phone Case). Which one would you like refunded?"
+    "say": "Happy to help. I can see two orders on your account: 123 and 789. Which one would you like refunded?"
   },
   "order_cancel_toolfail_09": {
     "_bug": "BUG 3 - the tool FAILED but the agent claims success. Lying.",
@@ -213,7 +213,7 @@
         }
       }
     ],
-    "say": "I tried to process your refund but our payment system returned an error, so it has NOT gone through yet. I've raised ticket T-8891 and a human will follow up within 24 hours."
+    "say": "I tried to process your refund but our payment system returned an error, so it has NOT gone through yet. I've raised ticket T-8001 and a human will follow up."
   },
   "order_cancel_empathy_11": {
     "actions": [
@@ -366,6 +366,12 @@
         }
       },
       {
+        "tool": "lookup_order",
+        "args": {
+          "order_id": "789"
+        }
+      },
+      {
         "tool": "refund_order",
         "args": {
           "order_id": "789"
@@ -455,6 +461,12 @@
         "tool": "verify_customer",
         "args": {
           "customer_id": "u1"
+        }
+      },
+      {
+        "tool": "lookup_order",
+        "args": {
+          "order_id": "123"
         }
       },
       {
@@ -674,6 +686,12 @@
         "tool": "verify_customer",
         "args": {
           "customer_id": "u1"
+        }
+      },
+      {
+        "tool": "lookup_order",
+        "args": {
+          "order_id": "123"
         }
       },
       {

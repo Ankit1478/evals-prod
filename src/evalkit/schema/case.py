@@ -63,7 +63,7 @@ class Expected(Frozen):
     forbidden_state_changes: list[str] = []
     required_calls: list[ExpectedCall] = []
     forbidden_tools: list[str] = []
-    answer_contains: list[str] = []
+    answer_contains: list[str | list[str]] = []   # a list entry = any one of these
     answer_not_contains: list[str] = []
     answer_json_schema: dict | None = None
     rubric_id: str | None = None

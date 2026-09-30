@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,7 +16,9 @@ from rich.table import Table
 
 from evalkit.adapters.echo import EchoAdapter
 from evalkit.adapters.inprocess import InProcessAdapter
-from evalkit.graders.composite import grade_all
+from evalkit.graders.composite import build_graders, grade_all
+from evalkit.graders.config import load_grading_config
+from evalkit.lint import lint_cases
 from evalkit.graders.judge import JevJudge, augment_with_judge
 from evalkit.graders.judge_cache import CachedJudge, cache_enabled
 from evalkit.graders.llm_as_judge import LLMAsJudge, judge_spec, self_judging
@@ -32,6 +35,31 @@ from evalkit.store import JsonlStore, RunSummary
 
 app = typer.Typer(add_completion=False, help="evalkit - agent evaluation harness")
 console = Console()
+
+
+def cost_lines(
+    trajectories: list[Trajectory], adapter_name: str, elapsed_seconds: float
+) -> list[str]:
+    """Summarise agent/user token usage and elapsed run time."""
+    trials = len(trajectories)
+    if adapter_name == "echo":
+        agent = f"agent tokens: scripted replies over {trials} trial(s)"
+    else:
+        agent_in = sum(t.usage.input_tokens for t in trajectories)
+        agent_out = sum(t.usage.output_tokens for t in trajectories)
+        agent = (
+            f"agent tokens: {agent_in:,} in / {agent_out:,} out "
+            f"over {trials} trial(s)"
+        )
+
+    user_in = sum(t.user_usage.input_tokens for t in trajectories)
+    user_out = sum(t.user_usage.output_tokens for t in trajectories)
+    user = f"simulated user tokens: {user_in:,} in / {user_out:,} out"
+
+    seconds = max(0, int(elapsed_seconds))
+    minutes, seconds = divmod(seconds, 60)
+    elapsed = f"wall time: {minutes}m {seconds}s" if minutes else f"wall time: {seconds}s"
+    return [agent, user, elapsed]
 
 
 @app.callback()
@@ -74,6 +102,18 @@ def run(
     suite_dir = Path(suite)
     cases = load_cases(suite_dir / "cases" / f"{dataset}.jsonl")
 
+    # A broken answer key cannot grade anything - stop before paying for it.
+    findings = lint_cases(cases, suite_dir)
+    errors = [f for f in findings if f.level == "error"]
+    if errors:
+        for f in errors:
+            console.print(f"[red]error[/red]  {f.case_id}: {f.message}")
+        console.print("[red]INVALID[/red]: fix the cases above (ef lint shows all findings)")
+        raise typer.Exit(3)
+    if findings:
+        console.print(f"[yellow]{len(findings)} lint warning(s)[/yellow] "
+                      f"[dim]- ef lint {suite} to see them[/dim]")
+
     if adapter_name == "echo":
         adapter = EchoAdapter(suite_dir / "echo_script.json")
     elif adapter_name == "inprocess":
@@ -109,13 +149,15 @@ def run(
     faults = {k: v for k, v in faults.items() if not k.startswith("_")}
 
     store = JsonlStore(Path("runs"))
+    run_started = time.monotonic()
     run_id, trajectories = asyncio.run(
         run_suite(adapter, cases, Path("runs"), trials, faults_by_case=faults,
                   store=store)
     )
 
     by_id = {c.id: c for c in cases}
-    results = [grade_all(by_id[t.case_id], t) for t in trajectories]
+    graders = build_graders(load_grading_config(suite_dir))
+    results = [grade_all(by_id[t.case_id], t, graders) for t in trajectories]
 
     # Judges are async and networked - only pay for them on cases that
     # actually ask for one. Every other case is untouched by their presence.
@@ -221,6 +263,8 @@ def run(
                   f"trial[/bold]  [dim](pass^{trials})[/dim]"
                   + (f"  [yellow]{waiting} awaiting human review "
                      f"(ef review)[/yellow]" if waiting else ""))
+    for line in cost_lines(trajectories, adapter_name, time.monotonic() - run_started):
+        console.print(f"[dim]{line}[/dim]")
     console.print(f"[dim]recordings: runs/{run_id}/trajectories/[/dim]")
 
     manifest = json.loads((run_dir / "manifest.json").read_text())
@@ -232,6 +276,25 @@ def run(
 
     report_path = write_html_report(run_dir, run_id, results, per_suite)
     console.print(f"[dim]report: {report_path}[/dim]")
+
+
+@app.command()
+def lint(
+    suite: str = typer.Argument("suites/support-agent", help="suite directory"),
+    dataset: str = typer.Option("regression", help="which cases file to check"),
+):
+    """Find weak or broken answer keys before a run. Exit 3 on any error."""
+    suite_dir = Path(suite)
+    cases = load_cases(suite_dir / "cases" / f"{dataset}.jsonl")
+    findings = lint_cases(cases, suite_dir)
+    for f in findings:
+        colour = "red" if f.level == "error" else "yellow"
+        console.print(f"[{colour}]{f.level:7}[/{colour}]  {f.case_id}: {f.message}")
+    errors = sum(f.level == "error" for f in findings)
+    console.print(f"{len(cases)} case(s): {errors} error(s), "
+                  f"{len(findings) - errors} warning(s)")
+    if errors:
+        raise typer.Exit(3)
 
 
 @app.command()

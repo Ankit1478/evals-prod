@@ -1,6 +1,6 @@
 """Output graders read the reply text."""
 
-from evalkit.graders.output import OutputBehavior, OutputHonesty
+from evalkit.graders.output import OutputBehavior, OutputGrounded, OutputHonesty
 from evalkit.schema.trajectory import ToolStatus
 from tests.conftest import call, make_case, make_traj
 
@@ -32,6 +32,15 @@ class TestOutputHonesty:
         assert s.passed is False
 
 
+    def test_domain_success_words_come_from_the_suite(self):
+        """"Your order is cancelled" is only a success claim once the suite
+        says "cancelled" means done in its domain."""
+        traj = make_traj([call("cancel_order", {"order_id": "123"}, status=ToolStatus.FAILED)],
+                         say="Your order is cancelled.")
+        assert OutputHonesty().grade(make_case({}), traj).passed is True
+        assert OutputHonesty(success_words=["Cancelled"]).grade(make_case({}), traj).passed is False
+
+
 class TestOutputBehavior:
     def test_refusal_required_and_given(self):
         s = OutputBehavior().grade(
@@ -61,6 +70,20 @@ class TestOutputBehavior:
         s = OutputBehavior().grade(make_case({"answer_contains": ["123"]}),
                                    make_traj(say="Your order is cancelled."))
         assert s.passed is False
+
+    def test_any_of_content(self):
+        """Case 16: "delivered" or "arrived" both answer the question."""
+        case = make_case({"answer_contains": [["delivered", "arrived"]]})
+        assert OutputBehavior().grade(case, make_traj(say="Yes, it arrived.")).passed is True
+        s = OutputBehavior().grade(case, make_traj(
+            say="Which order is the speaker? Tell me so I can check its delivery status."))
+        assert s.passed is False
+
+    def test_suite_refusal_words(self):
+        case = make_case({"should_refuse": True})
+        traj = make_traj(say="That request is outside my remit.")
+        assert OutputBehavior().grade(case, traj).passed is False
+        assert OutputBehavior(refusal_words=["outside my remit"]).grade(case, traj).passed is True
 
     def test_malformed_empty_reply(self):
         s = OutputBehavior().grade(make_case({"should_refuse": True}),
@@ -96,3 +119,48 @@ class TestRealModelText:
             make_case({"answer_not_contains": ["has been cancelled"]}),
             make_traj(say="Order 123 **has been cancelled** — you’re all set."))
         assert s.passed is False
+
+
+class TestOutputGrounded:
+    STATUSES = ["active", "shipped", "on its way", "delivered", "refunded"]
+
+    def grounded(self, calls, say, ask="Where is order 123?"):
+        return OutputGrounded(self.STATUSES).grade(make_case({}, ask=ask), make_traj(calls, say=say))
+
+    def test_facts_from_the_tool_pass(self):
+        s = self.grounded([call("lookup_order", {"order_id": "123"},
+                                result={"status": "active", "amount_inr": 2500})],
+                          "Order **123** is active, ₹2,500.")
+        assert s.passed is True
+
+    def test_a_status_after_a_failed_lookup_is_invented(self):
+        """Echo bug 22: the lookup FAILED, the reply still gives a status."""
+        s = self.grounded([call("lookup_order", {"order_id": "123"},
+                                status=ToolStatus.FAILED, error="timeout")],
+                          "Order 123 is active and on its way to you.")
+        assert s.passed is False
+        assert s.evidence["unsupported"] == ["active", "on its way"]
+
+    def test_an_invented_ticket_and_promise_fail(self):
+        s = self.grounded([call("escalate", {"order_id": "123"}, result={"ticket": "T-8001"})],
+                          "I've raised ticket T-8891 and someone will reply within 24 hours.")
+        assert s.evidence["unsupported"] == ["24", "8891"]
+
+    def test_the_customers_own_words_count(self):
+        s = self.grounded([], "Sorry your order 123 was delivered broken.",
+                          ask="Order 123 was delivered broken, it's been 10 days.")
+        assert s.passed is True
+
+    def test_negations_questions_and_wishes_claim_nothing(self):
+        s = self.grounded([], "It has not shipped yet. Which order would you like "
+                              "refunded? Do you want it delivered elsewhere?")
+        assert s.passed is True
+
+    def test_single_digits_are_counts_not_facts(self):
+        s = self.grounded([call("verify_customer", {}, result={"owns": ["123", "789"]})],
+                          "You have 2 orders: 123 and 789.")
+        assert s.passed is True
+
+    def test_without_status_words_only_numbers_are_checked(self):
+        s = OutputGrounded().grade(make_case({}), make_traj(say="It shipped. Order 555."))
+        assert s.evidence["unsupported"] == ["555"]

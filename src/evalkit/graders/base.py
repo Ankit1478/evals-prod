@@ -35,3 +35,17 @@ def score(grader: "Grader", value: float, passed: bool,
         evidence=evidence,
         explanation=explanation,
     )
+
+
+def abstain(grader: "Grader", explanation: str, evidence: dict | None = None) -> Score:
+    """The grader could not judge this case. It is left out of the verdict."""
+    return Score(
+        grader=grader.name,
+        grader_version=grader.version,
+        value=0.0,
+        passed=None,
+        severity=grader.severity,
+        abstained=True,
+        evidence=evidence or {},
+        explanation=explanation,
+    )

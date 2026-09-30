@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from evalkit.graders.base import score
+from evalkit.graders.base import abstain, score
 from evalkit.schema.case import Case
 from evalkit.schema.score import Score, Severity
 from evalkit.schema.trajectory import StopReason, ToolStatus, Trajectory
@@ -29,9 +29,7 @@ def _key(name: str, args: dict) -> str:
 
 
 def _abstain(grader, evidence: dict, explanation: str) -> Score:
-    return Score(grader=grader.name, grader_version=grader.version, value=0.0,
-                 passed=None, severity=grader.severity, abstained=True,
-                 evidence=evidence, explanation=explanation)
+    return abstain(grader, explanation, evidence)
 
 
 class StepBudget:
